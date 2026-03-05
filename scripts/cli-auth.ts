@@ -107,7 +107,7 @@ async function main() {
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, interval * 1000));
 
-    const pollRes = await fetch(`${BASE_URL}/v1/device/token`, {
+    const pollRes = await fetch(`${BASE_URL}/v1/oauth/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(pollBody),
@@ -125,7 +125,7 @@ async function main() {
 
       const claims = decodeJwtPayload(data.access_token);
       console.log(`${bold('Address:')}  ${claims.sub}`);
-      console.log(`${bold('Scopes:')}   ${claims.scopes?.join(', ') || 'none'}`);
+      console.log(`${bold('Scopes:')}   ${(claims.scope as string) || 'none'}`);
       console.log(`${bold('Expires:')}  ${new Date(claims.exp * 1000).toISOString()}`);
       console.log(`\n${bold('Access Token:')}\n${dim(data.access_token)}\n`);
       console.log(`${bold('Refresh Token:')}\n${dim(data.refresh_token)}\n`);

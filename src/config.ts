@@ -14,6 +14,10 @@ function intEnv(name: string, defaultValue: number): number {
   return parsed;
 }
 
+function normalizeUrl(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
 const network = optionalEnv('NETWORK', 'mainnet');
 if (network !== 'mainnet' && network !== 'testnet') {
   throw new Error(`Invalid NETWORK value: "${network}". Must be "mainnet" or "testnet".`);
@@ -24,7 +28,7 @@ const subtensorDefault = isTestnet
   ? 'wss://test.finney.opentensor.ai:443'
   : 'wss://entrypoint-finney.opentensor.ai:443';
 
-const publicUrl = optionalEnv('PUBLIC_URL', 'http://localhost:3000');
+const publicUrl = normalizeUrl(optionalEnv('PUBLIC_URL', 'http://localhost:3000'));
 
 export const config = {
   port: intEnv('PORT', 3000),
@@ -42,7 +46,7 @@ export const config = {
   rsaPublicKeyBase64: process.env['RSA_PUBLIC_KEY_BASE64'] || undefined,
 
   // JWT
-  jwtIssuer: optionalEnv('JWT_ISSUER', 'https://auth.taostats.io'),
+  jwtIssuer: normalizeUrl(optionalEnv('JWT_ISSUER', publicUrl)),
   jwtAudience: optionalEnv('JWT_AUDIENCE', 'bittensor-apps'),
   jwtAccessTokenExpiry: intEnv('JWT_ACCESS_TOKEN_EXPIRY', 900),
   jwtRefreshTokenExpiry: intEnv('JWT_REFRESH_TOKEN_EXPIRY', 86400),
@@ -104,6 +108,12 @@ if (config.nodeEnv === 'production' && !process.env['DATABASE_URL']) {
 }
 
 if (config.nodeEnv === 'production') {
+  const jwtIssuer = new URL(config.jwtIssuer);
+  const isIssuerLocalhost = jwtIssuer.hostname === 'localhost' || jwtIssuer.hostname === '127.0.0.1';
+  if (jwtIssuer.protocol !== 'https:' && !isIssuerLocalhost) {
+    throw new Error('JWT_ISSUER must use HTTPS in production');
+  }
+
   const verificationUrl = new URL(config.verificationUri);
   const isLocalhost = verificationUrl.hostname === 'localhost' || verificationUrl.hostname === '127.0.0.1';
   if (verificationUrl.protocol !== 'https:' && !isLocalhost) {
@@ -114,5 +124,9 @@ if (config.nodeEnv === 'production') {
   const isPublicLocalhost = publicUrl.hostname === 'localhost' || publicUrl.hostname === '127.0.0.1';
   if (publicUrl.protocol !== 'https:' && !isPublicLocalhost) {
     throw new Error('PUBLIC_URL must use HTTPS in production');
+  }
+
+  if (config.jwtIssuer !== config.publicUrl) {
+    throw new Error('JWT_ISSUER must match PUBLIC_URL in production for OIDC consistency');
   }
 }

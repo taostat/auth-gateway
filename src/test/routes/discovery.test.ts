@@ -83,9 +83,30 @@ describe('OAuth 2.0 Authorization Server Metadata (RFC 8414)', () => {
       expect((doc.response_types_supported as string[]).length).toBeGreaterThan(0);
     });
 
-    test('does not include OIDC-only fields (not an OIDC provider)', () => {
-      expect(doc.subject_types_supported).toBeUndefined();
-      expect(doc.id_token_signing_alg_values_supported).toBeUndefined();
+    test('includes OIDC discovery fields', () => {
+      expect(doc.subject_types_supported).toEqual(['public']);
+      expect(doc.id_token_signing_alg_values_supported).toEqual(['RS256']);
+      expect(doc.claims_supported).toEqual(expect.arrayContaining(['sub', 'iss', 'aud', 'nonce', 'at_hash', 'auth_time', 'hotkey', 'coldkey']));
+    });
+
+    test('endpoint paths match actual routes', () => {
+      const issuerOrigin = new URL(doc.issuer as string).origin;
+      expect(new URL(doc.authorization_endpoint as string).pathname).toBe('/v1/oauth/authorize');
+      expect(new URL(doc.token_endpoint as string).pathname).toBe('/v1/oauth/token');
+      expect(new URL(doc.jwks_uri as string).pathname).toBe('/.well-known/jwks.json');
+      expect(new URL(doc.device_authorization_endpoint as string).pathname).toBe('/v1/device/code');
+      // All endpoints rooted under the issuer origin
+      for (const field of ['authorization_endpoint', 'token_endpoint', 'jwks_uri', 'device_authorization_endpoint']) {
+        expect(new URL(doc[field] as string).origin).toBe(issuerOrigin);
+      }
+    });
+
+    test('response_types_supported includes code', () => {
+      expect(doc.response_types_supported).toContain('code');
+    });
+
+    test('scopes_supported includes openid', () => {
+      expect(doc.scopes_supported).toContain('openid');
     });
   });
 

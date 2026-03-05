@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
-import { createAccessToken, createRefreshToken, verifyToken } from '../../crypto/jwt';
+import { createAccessToken, createRefreshToken, createIdToken, verifyToken } from '../../crypto/jwt';
 import { verifyCodeVerifier, validateCodeVerifier } from '../../crypto/pkce';
 import { markAuthCodeConsumed } from '../../crypto/authCodeTracker';
 import { verifyScopes, resolveSignerContext } from '../../scopes';
@@ -30,6 +30,42 @@ import { TokenResponseSchema } from '../../schemas/responses';
 
 type TokenBody = z.infer<typeof TokenBodySchema>;
 type TokenClient = { client_id: string; rate_limit: number; grant_types: string[] };
+
+function buildTokenResponse(
+  address: string,
+  accessToken: string,
+  refreshToken: string,
+  scopes: string[],
+  expiresIn: number,
+  opts: {
+    client_id: string;
+    hotkey: string | null;
+    coldkey: string | null;
+    auth_time: number;
+    nonce?: string | undefined;
+  },
+): TokenResponse {
+  const response: TokenResponse = {
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    token_type: 'Bearer',
+    expires_in: expiresIn,
+    scope: scopes.join(' '),
+  };
+
+  if (scopes.includes('openid')) {
+    response.id_token = createIdToken(address, scopes, accessToken, {
+      client_id: opts.client_id,
+      auth_time: opts.auth_time,
+      nonce: opts.nonce,
+      expiresIn,
+      hotkey: opts.hotkey,
+      coldkey: opts.coldkey,
+    });
+  }
+
+  return response;
+}
 
 async function handleAuthorizationCode(
   request: FastifyRequest<{ Body: TokenBody }>,
@@ -85,7 +121,7 @@ async function handleAuthorizationCode(
   }
 
   const address = claims.sub;
-  const scopes = claims.scopes || [];
+  const scopes = claims.scope ? claims.scope.split(' ').filter(Boolean) : [];
 
   const { accessExpiry, epoch } = await getEpochInfo(scopes);
 
@@ -97,6 +133,7 @@ async function handleAuthorizationCode(
   const refreshJti = uuidv4();
   const hotkey = claims.hotkey ?? null;
   const coldkey = claims.coldkey ?? null;
+  const authTime = claims.auth_time ?? Math.floor(Date.now() / 1000);
 
   const accessToken = createAccessToken(address, scopes, {
     client_id: client.client_id,
@@ -108,6 +145,7 @@ async function handleAuthorizationCode(
     jti: refreshJti,
     client_id: client.client_id,
     epoch: epoch ?? undefined,
+    auth_time: authTime,
     hotkey,
     coldkey,
   });
@@ -121,16 +159,11 @@ async function handleAuthorizationCode(
     expires_at: new Date(Date.now() + config.jwtRefreshTokenExpiry * 1000),
   });
 
-  const response: TokenResponse = {
-    access_token: accessToken,
-    refresh_token: refreshToken,
-    token_type: 'Bearer',
-    expires_in: accessExpiry,
-    scope: scopes.join(' '),
-    scopes,
-  };
-
-  return reply.code(200).send(response);
+  return reply.code(200).send(
+    buildTokenResponse(address, accessToken, refreshToken, scopes, accessExpiry, {
+      client_id: client.client_id, hotkey, coldkey, auth_time: authTime, nonce: claims.nonce,
+    }),
+  );
 }
 
 async function handleRefreshToken(
@@ -175,7 +208,7 @@ async function handleRefreshToken(
   }
 
   const address = claims.sub;
-  const scopes = claims.scopes || [];
+  const scopes = claims.scope ? claims.scope.split(' ').filter(Boolean) : [];
 
   // Start epoch query concurrently with scope verification
   const epochPromise = getEpochInfo(scopes);
@@ -205,6 +238,8 @@ async function handleRefreshToken(
     throw e;
   }
 
+  const authTime = claims.auth_time ?? Math.floor(Date.now() / 1000);
+
   const accessToken = createAccessToken(address, scopes, {
     client_id: client.client_id,
     expiresIn: accessExpiry,
@@ -215,20 +250,16 @@ async function handleRefreshToken(
     jti: newRefreshJti,
     client_id: client.client_id,
     epoch: currentEpoch ?? undefined,
+    auth_time: authTime,
     hotkey: signerCtx.hotkey,
     coldkey: signerCtx.coldkey,
   });
 
-  const response: TokenResponse = {
-    access_token: accessToken,
-    refresh_token: newRefreshToken,
-    token_type: 'Bearer',
-    expires_in: accessExpiry,
-    scope: scopes.join(' '),
-    scopes,
-  };
-
-  return reply.code(200).send(response);
+  return reply.code(200).send(
+    buildTokenResponse(address, accessToken, newRefreshToken, scopes, accessExpiry, {
+      client_id: client.client_id, hotkey: signerCtx.hotkey, coldkey: signerCtx.coldkey, auth_time: authTime,
+    }),
+  );
 }
 
 async function handleDeviceCode(
@@ -285,6 +316,9 @@ async function handleDeviceCode(
   }
 
   const refreshJti = uuidv4();
+  const authTime = entry.approvedAt
+    ? Math.floor(entry.approvedAt.getTime() / 1000)
+    : Math.floor(Date.now() / 1000);
   const accessToken = createAccessToken(entry.address, entry.scopes, {
     client_id: client.client_id,
     expiresIn: accessExpiry,
@@ -295,6 +329,7 @@ async function handleDeviceCode(
     jti: refreshJti,
     client_id: client.client_id,
     epoch: epoch ?? undefined,
+    auth_time: authTime,
     hotkey: signerCtx.hotkey,
     coldkey: signerCtx.coldkey,
   });
@@ -308,16 +343,11 @@ async function handleDeviceCode(
     expires_at: new Date(Date.now() + config.jwtRefreshTokenExpiry * 1000),
   });
 
-  const response: TokenResponse = {
-    access_token: accessToken,
-    refresh_token: refreshToken,
-    token_type: 'Bearer',
-    expires_in: accessExpiry,
-    scope: entry.scopes.join(' '),
-    scopes: entry.scopes,
-  };
-
-  return reply.code(200).send(response);
+  return reply.code(200).send(
+    buildTokenResponse(entry.address, accessToken, refreshToken, entry.scopes, accessExpiry, {
+      client_id: client.client_id, hotkey: signerCtx.hotkey, coldkey: signerCtx.coldkey, auth_time: authTime,
+    }),
+  );
 }
 
 export async function tokenRoutes(fastify: FastifyInstance): Promise<void> {

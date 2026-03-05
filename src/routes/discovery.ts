@@ -28,8 +28,11 @@ export async function discoveryRoutes(fastify: FastifyInstance): Promise<void> {
         'client_secret_post',
         'none',
       ],
-      scopes_supported: ['subnet:*:miner', 'subnet:*:validator', 'subnet:*:owner', 'subnet:*:holder'],
+      scopes_supported: ['openid', 'subnet:*:miner', 'subnet:*:validator', 'subnet:*:owner', 'subnet:*:holder'],
       code_challenge_methods_supported: ['S256'],
+      id_token_signing_alg_values_supported: ['RS256'],
+      subject_types_supported: ['public'],
+      claims_supported: ['sub', 'iss', 'aud', 'exp', 'iat', 'auth_time', 'nonce', 'at_hash', 'scope', 'hotkey', 'coldkey', 'client_id'],
       service_documentation: `${issuer}/docs`,
     };
 

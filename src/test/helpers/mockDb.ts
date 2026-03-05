@@ -4,7 +4,7 @@ import { OAuthClient, RefreshTokenRecord } from '../../types';
 const clients = new Map<string, OAuthClient>();
 const refreshTokens = new Map<string, RefreshTokenRecord>();
 const challenges = new Map<string, { nonce: string; address: string | null; scopes: string[]; createdAt: Date; consumed: boolean }>();
-const deviceCodes = new Map<string, { deviceCode: string; userCode: string; clientId: string; scopes: string[]; approved: boolean; denied: boolean; address: string | null; createdAt: Date; expiresAt: Date; lastPolledAt: Date | null }>();
+const deviceCodes = new Map<string, { deviceCode: string; userCode: string; clientId: string; scopes: string[]; approved: boolean; denied: boolean; address: string | null; approvedAt: Date | null; createdAt: Date; expiresAt: Date; lastPolledAt: Date | null }>();
 const consumedAuthCodes = new Set<string>();
 
 // Default test client
@@ -197,7 +197,7 @@ export function setupMockDb(): void {
     createDeviceCode: jest.fn().mockImplementation(async (deviceCode: string, userCode: string, clientId: string, scopes: string[], expiresAt: Date) => {
       deviceCodes.set(deviceCode, {
         deviceCode, userCode, clientId, scopes,
-        approved: false, denied: false, address: null,
+        approved: false, denied: false, address: null, approvedAt: null,
         createdAt: new Date(), expiresAt, lastPolledAt: null,
       });
     }),
@@ -217,6 +217,7 @@ export function setupMockDb(): void {
         if (entry.userCode === userCode && !entry.approved && !entry.denied) {
           entry.approved = true;
           entry.address = address;
+          entry.approvedAt = new Date();
           return true;
         }
       }

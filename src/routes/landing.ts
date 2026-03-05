@@ -155,9 +155,9 @@ function demoPage(webClientId: string): string {
   <div id="status-bar"></div>
 
   <div class="card" style="margin-top:1rem;">
-    <h3>ID Token</h3>
-    <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:12px;">Verify wallet identity only. Proves you own an address — no on-chain role checks.</p>
-    <div style="text-align:right;"><button class="btn btn-primary" onclick="startFlow('').catch(showErr)">Verify Identity</button></div>
+    <h3>OIDC ID Token</h3>
+    <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:12px;">Verify wallet identity via OpenID Connect. Proves you own an address — no on-chain role checks.</p>
+    <div style="text-align:right;"><button class="btn btn-primary" onclick="startFlow('openid').catch(showErr)">Verify Identity</button></div>
   </div>
 
   <div class="card" style="margin-top:1rem;">
@@ -188,6 +188,7 @@ function demoPage(webClientId: string): string {
 
   <script data-cfasync="false">
     const CLIENT_ID = ${serializeForInlineScript(webClientId)};
+    const ISSUER = ${serializeForInlineScript(config.jwtIssuer)};
     const REDIRECT_URI = window.location.origin + '/';
 
     function showErr(err) { alert(err.message || err); }
@@ -273,6 +274,11 @@ function demoPage(webClientId: string): string {
       crypto.getRandomValues(arr);
       return btoa(String.fromCharCode(...arr)).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, '');
     }
+    function generateNonce() {
+      const arr = new Uint8Array(16);
+      crypto.getRandomValues(arr);
+      return btoa(String.fromCharCode(...arr)).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, '');
+    }
     async function sha256(plain) {
       if (!crypto.subtle) {
         throw new Error('crypto.subtle is not available. The page must be served over HTTPS (or localhost).');
@@ -286,11 +292,19 @@ function demoPage(webClientId: string): string {
       const verifier = generateVerifier();
       const challenge = await sha256(verifier);
       sessionStorage.setItem('pkce_verifier', verifier);
+      var wantsOidc = Boolean(scope) && scope.split(' ').indexOf('openid') !== -1;
+      if (wantsOidc) {
+        const nonce = generateNonce();
+        sessionStorage.setItem('oidc_nonce', nonce);
+      } else {
+        sessionStorage.removeItem('oidc_nonce');
+      }
       let url = '/v1/oauth/authorize?client_id=' + encodeURIComponent(CLIENT_ID)
         + '&redirect_uri=' + encodeURIComponent(REDIRECT_URI)
         + '&response_type=code&state=demo'
         + '&code_challenge=' + challenge
         + '&code_challenge_method=S256';
+      if (wantsOidc) url += '&nonce=' + encodeURIComponent(sessionStorage.getItem('oidc_nonce') || '');
       if (scope) url += '&scope=' + encodeURIComponent(scope);
       window.location.href = url;
     }
@@ -338,6 +352,43 @@ function demoPage(webClientId: string): string {
           return;
         }
 
+        if (data.id_token) {
+          var expectedNonce = sessionStorage.getItem('oidc_nonce');
+          sessionStorage.removeItem('oidc_nonce');
+          var idClaims = decodeJwtPayload(data.id_token);
+          if (!idClaims) {
+            bar.innerHTML = '<div class="status error">Failed to decode ID token</div>';
+            window.history.replaceState({}, '', '/');
+            return;
+          }
+          // OIDC baseline checks: iss, aud, exp, nonce
+          if (idClaims.iss !== ISSUER) {
+            bar.innerHTML = '<div class="status error">ID token issuer mismatch: expected ' + esc(ISSUER) + ', got ' + esc(idClaims.iss) + '</div>';
+            window.history.replaceState({}, '', '/');
+            return;
+          }
+          if (idClaims.aud !== CLIENT_ID) {
+            bar.innerHTML = '<div class="status error">ID token audience mismatch: expected ' + esc(CLIENT_ID) + ', got ' + esc(idClaims.aud) + '</div>';
+            window.history.replaceState({}, '', '/');
+            return;
+          }
+          if (!idClaims.exp || idClaims.exp < Math.floor(Date.now() / 1000)) {
+            bar.innerHTML = '<div class="status error">ID token is expired</div>';
+            window.history.replaceState({}, '', '/');
+            return;
+          }
+          if (!expectedNonce) {
+            bar.innerHTML = '<div class="status error">Missing stored nonce for ID token validation</div>';
+            window.history.replaceState({}, '', '/');
+            return;
+          }
+          if (idClaims.nonce !== expectedNonce) {
+            bar.innerHTML = '<div class="status error">ID token nonce mismatch</div>';
+            window.history.replaceState({}, '', '/');
+            return;
+          }
+        }
+
         window.history.replaceState({}, '', '/');
         showTokenModal(data);
       } catch (err) {
@@ -357,7 +408,8 @@ function demoPage(webClientId: string): string {
     function showTokenModal(data) {
       var bar = document.getElementById('status-bar');
       bar.innerHTML = '';
-      var claims = decodeJwtPayload(data.access_token);
+      var primaryToken = data.id_token || data.access_token;
+      var claims = decodeJwtPayload(primaryToken);
       if (!claims) { bar.innerHTML = '<div class="status error">Failed to decode token</div>'; return; }
 
       var overlay = document.createElement('div');
@@ -369,18 +421,24 @@ function demoPage(webClientId: string): string {
       modal.style.cssText = 'background:#1e1e1e;border:1px solid #262626;border-radius:16px;padding:28px;max-width:520px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.5);position:relative;z-index:101;';
 
       var h = document.createElement('h2');
-      h.textContent = 'Authorization Successful';
+      h.textContent = data.id_token ? 'Identity Verified' : 'Authorization Successful';
       h.style.cssText = 'font-size:1.1rem;font-weight:500;margin-bottom:16px;color:#fafafa;';
       modal.appendChild(h);
 
       var fields = [
+        ['Token Type', data.id_token ? 'OIDC ID Token' : 'Access Token'],
         ['Address', claims.sub],
         ['Hotkey', claims.hotkey],
         ['Coldkey', claims.coldkey],
-        ['Scopes', (claims.scopes || []).join(', ') || 'none'],
+        ['Scopes', claims.scope || 'none'],
         ['Issuer', claims.iss],
+        ['Audience', claims.aud],
         ['Expires', claims.exp ? new Date(claims.exp * 1000).toLocaleString() : '—'],
       ];
+
+      if (claims.auth_time) {
+        fields.push(['Auth Time', new Date(claims.auth_time * 1000).toLocaleString()]);
+      }
 
       fields.forEach(function(f) {
         var row = document.createElement('div');
@@ -407,7 +465,7 @@ function demoPage(webClientId: string): string {
       var jwtBtn = document.createElement('a');
       jwtBtn.textContent = 'View on jwt.io';
       jwtBtn.className = 'btn btn-primary';
-      jwtBtn.href = 'https://jwt.io/#debugger-io?token=' + encodeURIComponent(data.access_token);
+      jwtBtn.href = 'https://jwt.io/#debugger-io?token=' + encodeURIComponent(primaryToken);
       jwtBtn.target = '_blank';
 
       btnRow.appendChild(closeBtn);

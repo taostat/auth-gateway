@@ -32,7 +32,7 @@ See the table below and follow the linked README for setup instructions.
 | Example | Flow | Description |
 |---|---|---|
 | [web-app-raw](./web-app-raw/) | Authorization Code + PKCE | Minimal single-page app using raw `fetch()` calls against the gateway. No libraries. Good for understanding the protocol step by step. |
-| [web-app-oidc](./web-app-oidc/) | Authorization Code + PKCE | Single-page app using [`oidc-client-ts`](https://github.com/authts/oidc-client-ts) to handle discovery, PKCE, and token management automatically. Recommended starting point for web apps. |
+| [web-app-oidc](./web-app-oidc/) | OIDC Authorization Code + PKCE | Single-page app using [`oidc-client-ts`](https://github.com/authts/oidc-client-ts) to handle discovery, PKCE, and token management automatically. Supports `id_token` when `openid` is requested. |
 | [cli-device-code](./cli-device-code/) | Device Authorization (RFC 8628) | Terminal-based CLI that requests a device code, opens the browser for user approval, and polls for tokens. Ideal for headless tools, bots, and scripts. |
 | [resource-server](./resource-server/) | JWT verification | Express server that validates access tokens using the gateway's JWKS endpoint. Shows how a backend API accepts and verifies tokens issued by the gateway. |
 

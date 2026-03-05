@@ -48,8 +48,8 @@ app.get('/protected', async (req: Request, res: Response) => {
     });
 
     if (REQUIRED_SCOPE) {
-      const scopes = Array.isArray(payload.scopes) ? payload.scopes : [];
-      if (!scopes.includes(REQUIRED_SCOPE)) {
+      const scope = typeof payload.scope === 'string' ? payload.scope : '';
+      if (!scope.split(' ').includes(REQUIRED_SCOPE)) {
         res.status(403).json({
           error: 'forbidden',
           message: `Missing required scope: ${REQUIRED_SCOPE}`,

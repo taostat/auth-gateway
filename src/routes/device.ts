@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import { randomInt } from 'node:crypto';
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
@@ -36,9 +36,9 @@ function generateUserCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I, O
   const nums = '0123456789';
   let code = '';
-  for (let i = 0; i < 4; i++) code += chars[crypto.randomInt(chars.length)];
+  for (let i = 0; i < 4; i++) code += chars[randomInt(chars.length)];
   code += '-';
-  for (let i = 0; i < 4; i++) code += nums[crypto.randomInt(nums.length)];
+  for (let i = 0; i < 4; i++) code += nums[randomInt(nums.length)];
   return code;
 }
 

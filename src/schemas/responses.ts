@@ -3,10 +3,10 @@ import { z } from 'zod';
 export const TokenResponseSchema = z.object({
   access_token: z.string(),
   refresh_token: z.string().optional(),
+  id_token: z.string().optional(),
   token_type: z.literal('Bearer'),
   expires_in: z.number(),
   scope: z.string(),
-  scopes: z.array(z.string()),
 });
 
 export const ChallengeResponseSchema = z.object({

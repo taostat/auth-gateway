@@ -8,6 +8,7 @@ A single-page application that uses the [`oidc-client-ts`](https://github.com/au
 - Automatic PKCE (S256) handling by the library
 - Redirect-based login with the Polkadot.js wallet extension
 - Decoding and displaying JWT claims from the access token
+- OIDC behavior when requesting `openid` (ID token issuance and nonce round-trip)
 - Client-side session management (login / logout)
 
 ## Prerequisites
@@ -63,6 +64,7 @@ A single-page application that uses the [`oidc-client-ts`](https://github.com/au
 - **Automatic PKCE** -- `oidc-client-ts` generates the `code_verifier` / `code_challenge` pair and includes them in the authorization and token requests automatically.
 - **UserManager** -- The `oidc.UserManager` class manages the full lifecycle: redirect, callback processing, token storage, and session state.
 - **Scoped login** -- The `loginAsValidator()` and `loginAsHolder()` functions pass an extra `scope` parameter to `signinRedirect()`. The gateway verifies on-chain that the wallet holds the required role.
+- **ID token support** -- The gateway returns `id_token` only when `openid` is requested. Use `scope: 'openid'` (or combine: `openid subnet:1:validator`) and include a `nonce` if you need full OIDC nonce validation.
 
 ## Configuration
 
