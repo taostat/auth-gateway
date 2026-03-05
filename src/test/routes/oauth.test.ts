@@ -1,0 +1,985 @@
+import { cryptoWaitReady } from '@polkadot/util-crypto';
+import { setupMockDb, createTestClient, createPublicTestClient, addTestClient, clearTestClients, clearTestRefreshTokens, TEST_CLIENT_ID, TEST_CLIENT_SECRET } from '../helpers/mockDb';
+import { createMockApi, MockChainBuilder } from '../helpers/mockSubtensor';
+
+// Setup mocks BEFORE other imports
+setupMockDb();
+
+const ALICE = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+
+const builder = new MockChainBuilder();
+builder.setMiner(ALICE, 1, 5);
+const mockApi = createMockApi(builder.getState());
+
+jest.mock('../../subtensor/client', () => ({
+  getSubtensorApi: jest.fn().mockResolvedValue(mockApi),
+  disconnectSubtensor: jest.fn().mockResolvedValue(undefined),
+  isSubtensorConnected: jest.fn().mockReturnValue(true),
+}));
+
+// Mock getCurrentEpoch
+jest.mock('../../subtensor/queries', () => {
+  const actual = jest.requireActual('../../subtensor/queries');
+  return {
+    ...actual,
+    getCurrentEpoch: jest.fn().mockResolvedValue(100),
+    getSecondsUntilNextEpoch: jest.fn().mockResolvedValue(600),
+    getEpochDetails: jest.fn().mockResolvedValue({ secondsUntilNextEpoch: 600, currentEpoch: 100 }),
+  };
+});
+
+import { FastifyInstance } from 'fastify';
+import { buildTestApp } from '../helpers/app';
+import { getAliceAddress, signWithAlice } from '../helpers/sign';
+import { generateS256Challenge } from '../../crypto/pkce';
+import { clearTestChallenges, clearTestConsumedCodes } from '../helpers/mockDb';
+import crypto from 'crypto';
+
+let app: FastifyInstance;
+
+beforeAll(async () => {
+  await cryptoWaitReady();
+  app = await buildTestApp();
+});
+
+afterAll(async () => {
+  await app.close();
+});
+
+beforeEach(() => {
+  clearTestChallenges();
+  clearTestConsumedCodes();
+  clearTestClients();
+  clearTestRefreshTokens();
+  addTestClient(createTestClient());
+  addTestClient(createPublicTestClient());
+});
+
+describe('OAuth Routes', () => {
+  describe('GET /v1/oauth/authorize', () => {
+    test('returns HTML page with valid registered client', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/oauth/authorize?client_id=${TEST_CLIENT_ID}&redirect_uri=http://localhost:3001/callback&response_type=code`,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toContain('text/html');
+      expect(res.payload).toContain('Authorize access');
+      expect(res.payload).toContain('Test App'); // Shows client_name
+    });
+
+    test('returns 400 without client_id', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/oauth/authorize?redirect_uri=http://localhost/callback',
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    test('returns 400 for unknown client_id', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/oauth/authorize?client_id=unknown-client&redirect_uri=http://localhost/callback',
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.payload).toContain('not registered');
+    });
+
+    test('returns 400 for unregistered redirect_uri', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/oauth/authorize?client_id=${TEST_CLIENT_ID}&redirect_uri=http://evil.com/callback`,
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.payload).toContain('not registered');
+    });
+
+    test('public client requires PKCE', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/oauth/authorize?client_id=public-test-client&redirect_uri=http://localhost:3001/callback&response_type=code',
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.payload).toContain('PKCE');
+    });
+
+    test('public client with PKCE succeeds', async () => {
+      const verifier = crypto.randomBytes(32).toString('base64url');
+      const challenge = generateS256Challenge(verifier);
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/oauth/authorize?client_id=public-test-client&redirect_uri=http://localhost:3001/callback&response_type=code&code_challenge=${challenge}&code_challenge_method=S256`,
+      });
+      expect(res.statusCode).toBe(200);
+    });
+  });
+
+  describe('POST /v1/oauth/token', () => {
+    test('exchanges auth code for tokens with client auth', async () => {
+      const address = await getAliceAddress();
+
+      // Create challenge and get auth code via callback
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/challenge',
+        payload: { address },
+      });
+      const { nonce } = JSON.parse(challengeRes.payload);
+      const signature = await signWithAlice(nonce);
+
+      const callbackRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/callback',
+        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+      });
+      expect(callbackRes.statusCode).toBe(200);
+      const { code } = JSON.parse(callbackRes.payload);
+
+      // Exchange code for tokens (with client auth)
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      expect(tokenRes.statusCode).toBe(200);
+      const body = JSON.parse(tokenRes.payload);
+      expect(body.access_token).toBeDefined();
+      expect(body.refresh_token).toBeDefined();
+      expect(body.token_type).toBe('Bearer');
+      expect(body.scope).toBeDefined();
+    });
+
+    test('returns 401 for invalid auth code', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code: 'invalid-code',
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+        },
+      });
+      expect(res.statusCode).toBe(401);
+    });
+
+    test('returns 401 without client credentials', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code: 'some-code',
+        },
+      });
+      expect(res.statusCode).toBe(401);
+    });
+
+    test('PKCE flow works for public client', async () => {
+      const address = await getAliceAddress();
+      const codeVerifier = crypto.randomBytes(32).toString('base64url');
+      const codeChallenge = generateS256Challenge(codeVerifier);
+
+      // Challenge
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/challenge',
+        payload: { address },
+      });
+      const { nonce } = JSON.parse(challengeRes.payload);
+      const signature = await signWithAlice(nonce);
+
+      // Callback with PKCE challenge
+      const callbackRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/callback',
+        payload: {
+          nonce,
+          address,
+          signature,
+          client_id: 'public-test-client',
+          redirect_uri: 'http://localhost:3001/callback',
+          code_challenge: codeChallenge,
+        },
+      });
+      expect(callbackRes.statusCode).toBe(200);
+      const { code } = JSON.parse(callbackRes.payload);
+
+      // Token exchange with code_verifier
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: 'public-test-client',
+          code_verifier: codeVerifier,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      expect(tokenRes.statusCode).toBe(200);
+      const body = JSON.parse(tokenRes.payload);
+      expect(body.access_token).toBeDefined();
+      expect(body.refresh_token).toBeDefined();
+      expect(body.scope).toBeDefined();
+    });
+
+    test('PKCE rejects wrong code_verifier', async () => {
+      const address = await getAliceAddress();
+      const codeVerifier = crypto.randomBytes(32).toString('base64url');
+      const codeChallenge = generateS256Challenge(codeVerifier);
+
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/challenge',
+        payload: { address },
+      });
+      const { nonce } = JSON.parse(challengeRes.payload);
+      const signature = await signWithAlice(nonce);
+
+      const callbackRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/callback',
+        payload: {
+          nonce, address, signature,
+          client_id: 'public-test-client',
+          redirect_uri: 'http://localhost:3001/callback',
+          code_challenge: codeChallenge,
+        },
+      });
+      const { code } = JSON.parse(callbackRes.payload);
+
+      // Wrong verifier
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: 'public-test-client',
+          code_verifier: crypto.randomBytes(32).toString('base64url'),
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      expect(tokenRes.statusCode).toBe(401);
+    });
+  });
+
+  describe('POST /v1/oauth/refresh', () => {
+    test('refreshes token pair with client auth and DB-backed rotation', async () => {
+      const address = await getAliceAddress();
+
+      // Get initial tokens
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/challenge',
+        payload: { address },
+      });
+      const { nonce } = JSON.parse(challengeRes.payload);
+      const signature = await signWithAlice(nonce);
+
+      const callbackRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/callback',
+        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+      });
+      const { code } = JSON.parse(callbackRes.payload);
+
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      const { refresh_token } = JSON.parse(tokenRes.payload);
+
+      // Refresh
+      const refreshRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/refresh',
+        payload: {
+          grant_type: 'refresh_token',
+          refresh_token,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+        },
+      });
+      expect(refreshRes.statusCode).toBe(200);
+      const body = JSON.parse(refreshRes.payload);
+      expect(body.access_token).toBeDefined();
+      expect(body.refresh_token).toBeDefined();
+      expect(body.scope).toBeDefined();
+      // New refresh token should be different (rotation)
+      expect(body.refresh_token).not.toBe(refresh_token);
+    });
+
+    test('returns 401 for invalid refresh token', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/refresh',
+        payload: {
+          grant_type: 'refresh_token',
+          refresh_token: 'invalid-token',
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+        },
+      });
+      expect(res.statusCode).toBe(401);
+    });
+
+    test('returns 401 without client credentials', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/refresh',
+        payload: {
+          grant_type: 'refresh_token',
+          refresh_token: 'some-token',
+        },
+      });
+      expect(res.statusCode).toBe(401);
+    });
+
+    test('refreshes scoped token when on-chain role is still valid', async () => {
+      const address = await getAliceAddress();
+
+      // Register a client that allows the scope
+      addTestClient(createTestClient({
+        client_id: 'scoped-client',
+        client_name: 'Scoped App',
+        allowed_scopes: ['subnet:1:miner'],
+        redirect_uris: ['http://localhost:3001/callback'],
+      }));
+
+      // Full flow: challenge -> sign -> callback -> token exchange -> refresh
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/challenge',
+        payload: { address, scopes: ['subnet:1:miner'] },
+      });
+      const { nonce } = JSON.parse(challengeRes.payload);
+      const signature = await signWithAlice(nonce);
+
+      const callbackRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/callback',
+        payload: { nonce, address, signature, client_id: 'scoped-client', redirect_uri: 'http://localhost:3001/callback' },
+      });
+      expect(callbackRes.statusCode).toBe(200);
+      const { code } = JSON.parse(callbackRes.payload);
+
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: 'scoped-client',
+          client_secret: TEST_CLIENT_SECRET,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      expect(tokenRes.statusCode).toBe(200);
+      const { refresh_token } = JSON.parse(tokenRes.payload);
+
+      // Refresh should succeed because Alice is still a miner
+      const refreshRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/refresh',
+        payload: {
+          grant_type: 'refresh_token',
+          refresh_token,
+          client_id: 'scoped-client',
+          client_secret: TEST_CLIENT_SECRET,
+        },
+      });
+      expect(refreshRes.statusCode).toBe(200);
+      const body = JSON.parse(refreshRes.payload);
+      expect(body.access_token).toBeDefined();
+      expect(body.refresh_token).toBeDefined();
+      expect(body.scope).toBeDefined();
+    });
+
+    test('refresh rejects with 403 when address loses on-chain role', async () => {
+      const address = await getAliceAddress();
+
+      addTestClient(createTestClient({
+        client_id: 'scoped-client-2',
+        client_name: 'Scoped App 2',
+        allowed_scopes: ['subnet:1:miner'],
+        redirect_uris: ['http://localhost:3001/callback'],
+      }));
+
+      // Full flow to get refresh token
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/challenge',
+        payload: { address, scopes: ['subnet:1:miner'] },
+      });
+      const { nonce } = JSON.parse(challengeRes.payload);
+      const signature = await signWithAlice(nonce);
+
+      const callbackRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/callback',
+        payload: { nonce, address, signature, client_id: 'scoped-client-2', redirect_uri: 'http://localhost:3001/callback' },
+      });
+      expect(callbackRes.statusCode).toBe(200);
+      const { code } = JSON.parse(callbackRes.payload);
+
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: 'scoped-client-2',
+          client_secret: TEST_CLIENT_SECRET,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      expect(tokenRes.statusCode).toBe(200);
+      const { refresh_token } = JSON.parse(tokenRes.payload);
+
+      // Swap mock chain state: Alice is no longer registered
+      const emptyBuilder = new MockChainBuilder();
+      const emptyMockApi = createMockApi(emptyBuilder.getState());
+      const getSubtensorApi = require('../../subtensor/client').getSubtensorApi as jest.Mock;
+      const originalImpl = getSubtensorApi.getMockImplementation();
+      getSubtensorApi.mockResolvedValue(emptyMockApi);
+
+      try {
+        // Refresh should fail because Alice is no longer a miner
+        const refreshRes = await app.inject({
+          method: 'POST',
+          url: '/v1/oauth/refresh',
+          payload: {
+            grant_type: 'refresh_token',
+            refresh_token,
+            client_id: 'scoped-client-2',
+            client_secret: TEST_CLIENT_SECRET,
+          },
+        });
+        expect(refreshRes.statusCode).toBe(403);
+      } finally {
+        // Restore original mock
+        if (originalImpl) {
+          getSubtensorApi.mockImplementation(originalImpl);
+        } else {
+          getSubtensorApi.mockResolvedValue(mockApi);
+        }
+      }
+    });
+
+    test('refreshes via unified /v1/oauth/token endpoint', async () => {
+      const address = await getAliceAddress();
+
+      // Get tokens via full flow
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/challenge',
+        payload: { address },
+      });
+      const { nonce } = JSON.parse(challengeRes.payload);
+      const signature = await signWithAlice(nonce);
+
+      const callbackRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/callback',
+        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+      });
+      const { code } = JSON.parse(callbackRes.payload);
+
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      const { refresh_token } = JSON.parse(tokenRes.payload);
+
+      // Refresh via unified endpoint
+      const refreshRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'refresh_token',
+          refresh_token,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+        },
+      });
+      expect(refreshRes.statusCode).toBe(200);
+      const body = JSON.parse(refreshRes.payload);
+      expect(body.access_token).toBeDefined();
+      expect(body.refresh_token).toBeDefined();
+      expect(body.scope).toBeDefined();
+    });
+  });
+
+  describe('Auth code single-use enforcement', () => {
+    test('rejects auth code replay (single-use)', async () => {
+      const address = await getAliceAddress();
+
+      // Create challenge and get auth code
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/challenge',
+        payload: { address },
+      });
+      const { nonce } = JSON.parse(challengeRes.payload);
+      const signature = await signWithAlice(nonce);
+
+      const callbackRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/callback',
+        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+      });
+      expect(callbackRes.statusCode).toBe(200);
+      const { code } = JSON.parse(callbackRes.payload);
+
+      // First exchange should succeed
+      const tokenRes1 = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      expect(tokenRes1.statusCode).toBe(200);
+
+      // Second exchange should fail (auth code replay)
+      const tokenRes2 = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      expect(tokenRes2.statusCode).toBe(401);
+      const body = JSON.parse(tokenRes2.payload);
+      expect(body.message).toContain('already been used');
+      expect(body.error_description).toContain('already been used');
+    });
+
+    test('rejects token exchange when redirect_uri omitted but was in auth code', async () => {
+      const address = await getAliceAddress();
+
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/challenge',
+        payload: { address },
+      });
+      const { nonce } = JSON.parse(challengeRes.payload);
+      const signature = await signWithAlice(nonce);
+
+      const callbackRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/callback',
+        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+      });
+      expect(callbackRes.statusCode).toBe(200);
+      const { code } = JSON.parse(callbackRes.payload);
+
+      // Exchange without redirect_uri — should fail because auth code had one
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+          // redirect_uri intentionally omitted
+        },
+      });
+      expect(tokenRes.statusCode).toBe(400);
+      const body = JSON.parse(tokenRes.payload);
+      expect(body.message).toContain('redirect_uri');
+      expect(body.error_description).toContain('redirect_uri');
+    });
+
+    test('auth code not consumed when PKCE validation fails (retry with correct verifier succeeds)', async () => {
+      const address = await getAliceAddress();
+      const codeVerifier = crypto.randomBytes(32).toString('base64url');
+      const codeChallenge = generateS256Challenge(codeVerifier);
+
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/challenge',
+        payload: { address },
+      });
+      const { nonce } = JSON.parse(challengeRes.payload);
+      const signature = await signWithAlice(nonce);
+
+      const callbackRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/callback',
+        payload: {
+          nonce, address, signature,
+          client_id: 'public-test-client',
+          redirect_uri: 'http://localhost:3001/callback',
+          code_challenge: codeChallenge,
+        },
+      });
+      expect(callbackRes.statusCode).toBe(200);
+      const { code } = JSON.parse(callbackRes.payload);
+
+      // First attempt with WRONG verifier — should fail
+      const wrongRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: 'public-test-client',
+          code_verifier: crypto.randomBytes(32).toString('base64url'),
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      expect(wrongRes.statusCode).toBe(401);
+
+      // Second attempt with CORRECT verifier — should succeed (code was not consumed)
+      const correctRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: 'public-test-client',
+          code_verifier: codeVerifier,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      expect(correctRes.statusCode).toBe(200);
+      const body = JSON.parse(correctRes.payload);
+      expect(body.access_token).toBeDefined();
+    });
+
+    test('auth code not consumed when redirect_uri mismatches (retry with correct URI succeeds)', async () => {
+      const address = await getAliceAddress();
+
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/challenge',
+        payload: { address },
+      });
+      const { nonce } = JSON.parse(challengeRes.payload);
+      const signature = await signWithAlice(nonce);
+
+      const callbackRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/callback',
+        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+      });
+      expect(callbackRes.statusCode).toBe(200);
+      const { code } = JSON.parse(callbackRes.payload);
+
+      // Wrong redirect_uri
+      const wrongRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+          redirect_uri: 'http://wrong.com/callback',
+        },
+      });
+      expect(wrongRes.statusCode).toBe(400);
+
+      // Correct redirect_uri — should succeed
+      const correctRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      expect(correctRes.statusCode).toBe(200);
+    });
+  });
+
+  describe('client isolation', () => {
+    test('rejects refresh token issued to a different client', async () => {
+      const address = await getAliceAddress();
+
+      // Get tokens via full flow with test-client
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/challenge',
+        payload: { address },
+      });
+      const { nonce } = JSON.parse(challengeRes.payload);
+      const signature = await signWithAlice(nonce);
+
+      const callbackRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/callback',
+        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+      });
+      const { code } = JSON.parse(callbackRes.payload);
+
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      expect(tokenRes.statusCode).toBe(200);
+      const { refresh_token } = JSON.parse(tokenRes.payload);
+
+      // Register a second client
+      addTestClient(createTestClient({
+        client_id: 'other-client',
+        client_name: 'Other App',
+        redirect_uris: ['http://localhost:3001/callback'],
+      }));
+
+      // Try to use the refresh token with the other client
+      const refreshRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/refresh',
+        payload: {
+          grant_type: 'refresh_token',
+          refresh_token,
+          client_id: 'other-client',
+          client_secret: TEST_CLIENT_SECRET,
+        },
+      });
+      expect(refreshRes.statusCode).toBe(401);
+      const body = JSON.parse(refreshRes.payload);
+      expect(body.error).toBe('invalid_client');
+    });
+
+    test('rejects auth code issued to a different client', async () => {
+      const address = await getAliceAddress();
+
+      // Get auth code bound to test-client
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/challenge',
+        payload: { address },
+      });
+      const { nonce } = JSON.parse(challengeRes.payload);
+      const signature = await signWithAlice(nonce);
+
+      const callbackRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/callback',
+        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+      });
+      expect(callbackRes.statusCode).toBe(200);
+      const { code } = JSON.parse(callbackRes.payload);
+
+      // Register a second client
+      addTestClient(createTestClient({
+        client_id: 'other-client',
+        client_name: 'Other App',
+        redirect_uris: ['http://localhost:3001/callback'],
+      }));
+
+      // Try to exchange the auth code with the other client
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: 'other-client',
+          client_secret: TEST_CLIENT_SECRET,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      expect(tokenRes.statusCode).toBe(401);
+    });
+  });
+
+  describe('PKCE downgrade prevention', () => {
+    test('rejects token exchange when code_verifier is missing but code_challenge was provided', async () => {
+      const address = await getAliceAddress();
+      const codeVerifier = crypto.randomBytes(32).toString('base64url');
+      const codeChallenge = generateS256Challenge(codeVerifier);
+
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/challenge',
+        payload: { address },
+      });
+      const { nonce } = JSON.parse(challengeRes.payload);
+      const signature = await signWithAlice(nonce);
+
+      // Issue auth code WITH code_challenge (using confidential client)
+      const callbackRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/callback',
+        payload: {
+          nonce, address, signature,
+          client_id: TEST_CLIENT_ID,
+          redirect_uri: 'http://localhost:3001/callback',
+          code_challenge: codeChallenge,
+        },
+      });
+      expect(callbackRes.statusCode).toBe(200);
+      const { code } = JSON.parse(callbackRes.payload);
+
+      // Exchange WITHOUT code_verifier — should be rejected
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      expect(tokenRes.statusCode).toBe(400);
+      const body = JSON.parse(tokenRes.payload);
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toContain('PKCE');
+    });
+  });
+
+  describe('refresh token revocation', () => {
+    test('rejects a revoked refresh token', async () => {
+      const address = await getAliceAddress();
+
+      // Get initial tokens
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/challenge',
+        payload: { address },
+      });
+      const { nonce } = JSON.parse(challengeRes.payload);
+      const signature = await signWithAlice(nonce);
+
+      const callbackRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/callback',
+        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+      });
+      const { code } = JSON.parse(callbackRes.payload);
+
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      expect(tokenRes.statusCode).toBe(200);
+      const { refresh_token: firstRefresh } = JSON.parse(tokenRes.payload);
+
+      // Rotate: use the refresh token once (old one gets revoked)
+      const refreshRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/refresh',
+        payload: {
+          grant_type: 'refresh_token',
+          refresh_token: firstRefresh,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+        },
+      });
+      expect(refreshRes.statusCode).toBe(200);
+      const { refresh_token: secondRefresh } = JSON.parse(refreshRes.payload);
+      expect(secondRefresh).not.toBe(firstRefresh);
+
+      // Try to use the OLD (revoked) refresh token again
+      const reuseRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/refresh',
+        payload: {
+          grant_type: 'refresh_token',
+          refresh_token: firstRefresh,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+        },
+      });
+      expect(reuseRes.statusCode).toBe(401);
+      const body = JSON.parse(reuseRes.payload);
+      expect(body.error_description).toMatch(/revoked/i);
+    });
+  });
+
+  describe('allowed_scopes enforcement', () => {
+    test('rejects scopes not in client allowed_scopes on authorize', async () => {
+      addTestClient(createTestClient({
+        client_id: 'restricted-client',
+        client_name: 'Restricted',
+        allowed_scopes: ['subnet:1:miner'],
+        redirect_uris: ['http://localhost:3001/callback'],
+      }));
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/oauth/authorize?client_id=restricted-client&redirect_uri=http://localhost:3001/callback&response_type=code&scope=subnet:1:validator',
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.payload).toContain('not allowed');
+    });
+
+    test('allows scopes within client allowed_scopes', async () => {
+      addTestClient(createTestClient({
+        client_id: 'restricted-client-2',
+        client_name: 'Restricted 2',
+        allowed_scopes: ['subnet:1:miner'],
+        redirect_uris: ['http://localhost:3001/callback'],
+      }));
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/oauth/authorize?client_id=restricted-client-2&redirect_uri=http://localhost:3001/callback&response_type=code&scope=subnet:1:miner',
+      });
+      expect(res.statusCode).toBe(200);
+    });
+
+    test('unrestricted client (empty allowed_scopes) allows any scope', async () => {
+      // Default test client has allowed_scopes: []
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/oauth/authorize?client_id=${TEST_CLIENT_ID}&redirect_uri=http://localhost:3001/callback&response_type=code&scope=subnet:1:validator`,
+      });
+      expect(res.statusCode).toBe(200);
+    });
+  });
+});

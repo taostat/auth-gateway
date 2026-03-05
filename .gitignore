@@ -1,0 +1,11 @@
+node_modules/
+dist/
+keys/
+.env
+*.pem
+coverage/
+.DS_Store
+*.log
+
+# Licensed fonts (deploy via K8s secret mount)
+src/static/fonts/*.woff2

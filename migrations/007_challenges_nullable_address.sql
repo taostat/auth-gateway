@@ -1,0 +1,1 @@
+ALTER TABLE challenges ALTER COLUMN address DROP NOT NULL;

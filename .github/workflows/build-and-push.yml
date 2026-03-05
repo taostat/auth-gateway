@@ -1,0 +1,86 @@
+name: Build and Push to K8s
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
+
+      - name: Determine environment from tag
+        id: env
+        run: |
+          REF="${GITHUB_REF#refs/tags/}"
+          if [[ "$REF" == *-dev ]]; then
+            echo "overlay=development" >> "$GITHUB_OUTPUT"
+            echo "is_prod=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "overlay=production" >> "$GITHUB_OUTPUT"
+            echo "is_prod=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "tag=$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '22'
+
+      - name: Cache node_modules
+        id: cache-nm
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Type check + Lint
+        run: npm run typecheck & npm run lint & wait
+
+      - name: Test
+        run: npm test
+        env:
+          NODE_ENV: test
+
+      - name: Build application
+        run: npm run build
+
+      - name: Build and Push Docker image
+        uses: ./.github/actions/build-and-push-quay
+        with:
+          image-name: ${{ github.event.repository.name }}
+          version: ${{ steps.env.outputs.tag }}
+          registry-username: ${{ secrets.QUAY_USERNAME }}
+          registry-password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Update CI/CD repo kustomize image tag
+        uses: ./.github/actions/update-ci-cd
+        with:
+          argo-project-name: taostats-${{ github.event.repository.name }}
+          kustomize-path: overlays/${{ steps.env.outputs.overlay }}
+          image-name: ${{ github.event.repository.name }}
+          version: ${{ steps.env.outputs.tag }}
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Update testnet overlay (same image as production)
+        if: steps.env.outputs.is_prod == 'true'
+        uses: ./.github/actions/update-ci-cd
+        with:
+          argo-project-name: taostats-${{ github.event.repository.name }}
+          kustomize-path: overlays/testnet
+          image-name: ${{ github.event.repository.name }}
+          version: ${{ steps.env.outputs.tag }}
+          token: ${{ secrets.GH_PAT }}
