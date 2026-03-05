@@ -566,7 +566,7 @@
 
         const fields = [
           ['sub', claims.sub],
-          ['scopes', Array.isArray(claims.scopes) ? claims.scopes.join(', ') || '(none)' : '(none)'],
+          ['scope', typeof claims.scope === 'string' ? claims.scope || '(none)' : '(none)'],
           ['exp', claims.exp ? new Date(claims.exp * 1000).toLocaleString() + ' (' + claims.exp + ')' : 'N/A'],
           ['iat', claims.iat ? new Date(claims.iat * 1000).toLocaleString() + ' (' + claims.iat + ')' : 'N/A'],
           ['type', claims.type || 'N/A'],
@@ -588,8 +588,8 @@
 
         log('JWT claims decoded and displayed', 'ok');
         log('sub: ' + claims.sub, 'ok');
-        if (claims.scopes && claims.scopes.length > 0) {
-          log('scopes: ' + claims.scopes.join(', '), 'ok');
+        if (claims.scope) {
+          log('scope: ' + claims.scope, 'ok');
         }
       } catch (err) {
         log('Failed to decode JWT: ' + err.message, 'err');

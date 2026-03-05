@@ -1,0 +1,1 @@
+ALTER TABLE device_codes ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;

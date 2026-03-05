@@ -8,6 +8,7 @@ export const AuthorizeQuerySchema = z.object({
   response_type: z.string().optional(),
   code_challenge: z.string().optional(),
   code_challenge_method: z.string().optional(),
+  nonce: z.string().optional(),
 });
 
 export const CallbackBodySchema = z.object({
@@ -17,6 +18,7 @@ export const CallbackBodySchema = z.object({
   client_id: z.string(),
   redirect_uri: z.string().optional(),
   code_challenge: z.string().optional(),
+  oidc_nonce: z.string().optional(),
 });
 
 export const TokenBodySchema = z.object({

@@ -26,7 +26,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
   }, async (request: FastifyRequest<{
     Querystring: z.infer<typeof AuthorizeQuerySchema>;
   }>, reply: FastifyReply) => {
-    const { client_id, redirect_uri, scope, state, response_type, code_challenge, code_challenge_method } = request.query;
+    const { client_id, redirect_uri, scope, state, response_type, code_challenge, code_challenge_method, nonce: oidcNonce } = request.query;
 
     if (!client_id || !redirect_uri) {
       return sendHtmlError(reply, 400, 'Bad Request', 'Missing required parameters: client_id and redirect_uri');
@@ -151,6 +151,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       state: ${serializeForInlineScript(state || '')},
       scopes: ${serializeForInlineScript(scopes)},
       codeChallenge: ${serializeForInlineScript(code_challenge || '')},
+      oidcNonce: ${serializeForInlineScript(oidcNonce || '')},
     };
 
     let cliNonce = null;
@@ -225,6 +226,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
             client_id: CONFIG.clientId,
             redirect_uri: CONFIG.redirectUri,
             code_challenge: CONFIG.codeChallenge || undefined,
+            oidc_nonce: CONFIG.oidcNonce || undefined,
           }),
         });
         if (!verifyRes.ok) { const e = await verifyRes.json(); throw new Error(e.message); }
@@ -313,6 +315,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
             client_id: CONFIG.clientId,
             redirect_uri: CONFIG.redirectUri,
             code_challenge: CONFIG.codeChallenge || undefined,
+            oidc_nonce: CONFIG.oidcNonce || undefined,
           }),
         });
         if (!verifyRes.ok) { const e = await verifyRes.json(); throw new Error(e.message); }
@@ -392,7 +395,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
   }, async (request: FastifyRequest<{
     Body: z.infer<typeof CallbackBodySchema>;
   }>, reply: FastifyReply) => {
-    const { nonce, address, signature, client_id, redirect_uri, code_challenge } = request.body;
+    const { nonce, address, signature, client_id, redirect_uri, code_challenge, oidc_nonce } = request.body;
 
     if (!isValidSS58(address)) {
       throw new InvalidAddressError();
@@ -441,6 +444,8 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       client_id,
       redirect_uri,
       code_challenge,
+      nonce: oidc_nonce,
+      auth_time: Math.floor(Date.now() / 1000),
       hotkey: signerCtx.hotkey,
       coldkey: signerCtx.coldkey,
     });

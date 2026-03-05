@@ -1,7 +1,6 @@
-import crypto from 'crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { v4 as uuidv4 } from 'uuid';
 import { createChallenge, consumeChallenge } from '../crypto/challenge';
 import { verifySignatureOrThrow } from '../crypto/signature';
 import { verifyScopes, validateScopes, describeScopes, enforceClientScopes, resolveSignerContext } from '../scopes';
@@ -36,9 +35,9 @@ function generateUserCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I, O
   const nums = '0123456789';
   let code = '';
-  for (let i = 0; i < 4; i++) code += chars[crypto.randomInt(chars.length)];
+  for (let i = 0; i < 4; i++) code += chars[randomInt(chars.length)];
   code += '-';
-  for (let i = 0; i < 4; i++) code += nums[crypto.randomInt(nums.length)];
+  for (let i = 0; i < 4; i++) code += nums[randomInt(nums.length)];
   return code;
 }
 
@@ -66,7 +65,7 @@ async function createUniqueDeviceCodeRecord(
 ): Promise<{ deviceCode: string; userCode: string }> {
   const maxAttempts = 5;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const deviceCode = uuidv4();
+    const deviceCode = randomUUID();
     const userCode = generateUserCode();
     try {
       await dbCreateDeviceCode(deviceCode, userCode, clientId, scopes, expiresAt);

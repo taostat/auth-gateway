@@ -4,7 +4,7 @@ import { OAuthClient, RefreshTokenRecord } from '../../types';
 const clients = new Map<string, OAuthClient>();
 const refreshTokens = new Map<string, RefreshTokenRecord>();
 const challenges = new Map<string, { nonce: string; address: string | null; scopes: string[]; createdAt: Date; consumed: boolean }>();
-const deviceCodes = new Map<string, { deviceCode: string; userCode: string; clientId: string; scopes: string[]; approved: boolean; denied: boolean; address: string | null; createdAt: Date; expiresAt: Date; lastPolledAt: Date | null }>();
+const deviceCodes = new Map<string, { deviceCode: string; userCode: string; clientId: string; scopes: string[]; approved: boolean; denied: boolean; address: string | null; approvedAt: Date | null; createdAt: Date; expiresAt: Date; lastPolledAt: Date | null }>();
 const consumedAuthCodes = new Set<string>();
 
 // Default test client
@@ -172,11 +172,11 @@ export function setupMockDb(): void {
 
   // Mock db/challenges
   jest.mock('../../db/challenges', () => {
-    const { v4: uuidv4 } = require('uuid');
+    const { randomUUID } = require('node:crypto');
     return {
       createChallenge: jest.fn().mockImplementation(async (address: string | null, scopes: string[] = []) => {
         const scopesCsv = scopes.length > 0 ? scopes.join(',') : 'none';
-        const nonce = `bittensor-auth:${scopesCsv}:${uuidv4()}`;
+        const nonce = `bittensor-auth:${scopesCsv}:${randomUUID()}`;
         const now = new Date();
         challenges.set(nonce, { nonce, address, scopes, createdAt: now, consumed: false });
         return { nonce, address, scopes, createdAt: now };
@@ -197,7 +197,7 @@ export function setupMockDb(): void {
     createDeviceCode: jest.fn().mockImplementation(async (deviceCode: string, userCode: string, clientId: string, scopes: string[], expiresAt: Date) => {
       deviceCodes.set(deviceCode, {
         deviceCode, userCode, clientId, scopes,
-        approved: false, denied: false, address: null,
+        approved: false, denied: false, address: null, approvedAt: null,
         createdAt: new Date(), expiresAt, lastPolledAt: null,
       });
     }),
@@ -217,6 +217,7 @@ export function setupMockDb(): void {
         if (entry.userCode === userCode && !entry.approved && !entry.denied) {
           entry.approved = true;
           entry.address = address;
+          entry.approvedAt = new Date();
           return true;
         }
       }

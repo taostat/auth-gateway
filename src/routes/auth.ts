@@ -106,7 +106,6 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       token_type: 'Bearer',
       expires_in: accessExpiry,
       scope: challenge.scopes.join(' '),
-      scopes: challenge.scopes,
     };
 
     return reply.code(200).send(response);

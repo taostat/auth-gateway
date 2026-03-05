@@ -9,6 +9,7 @@ import { SignerContext } from './signerContext';
 export { type SignerContext, resolveSignerContext } from './signerContext';
 
 const SCOPE_REGEX = /^subnet:(\d+):(miner|owner|validator|holder)$/;
+const METADATA_SCOPES = new Set(['openid']);
 
 const handlers: Record<string, ScopeHandler> = {
   miner: minerHandler,
@@ -26,7 +27,7 @@ export function parseScope(scope: string): { netuid: number; role: string } {
 }
 
 export function validateScopeFormat(scope: string): boolean {
-  return SCOPE_REGEX.test(scope);
+  return METADATA_SCOPES.has(scope) || SCOPE_REGEX.test(scope);
 }
 
 export function validateScopes(scopes: string[]): void {
@@ -71,6 +72,7 @@ export function describeScopes(scopes: string[]): string[] {
 export function enforceClientScopes(requestedScopes: string[], allowedScopes: string[]): void {
   if (allowedScopes.length === 0) return;
   for (const scope of requestedScopes) {
+    if (METADATA_SCOPES.has(scope)) continue;
     if (!allowedScopes.includes(scope)) {
       throw new AuthError(`Scope "${scope}" is not allowed for this client`, 403, 'Forbidden');
     }
@@ -83,6 +85,7 @@ export function enforceClientScopes(requestedScopes: string[], allowedScopes: st
  */
 export async function verifyScopes(ctx: SignerContext, scopes: string[]): Promise<void> {
   for (const scope of scopes) {
+    if (METADATA_SCOPES.has(scope)) continue;
     const { netuid, role } = parseScope(scope);
     const handler = handlers[role];
     if (!handler) {

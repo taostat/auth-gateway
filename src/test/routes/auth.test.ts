@@ -127,7 +127,7 @@ describe('Auth Routes', () => {
       });
       expect(verifyRes.statusCode).toBe(200);
       const body = JSON.parse(verifyRes.payload);
-      expect(body.scopes).toEqual(['subnet:1:miner']);
+      expect(body.scope).toBe('subnet:1:miner');
     });
 
     test('returns 401 for invalid signature', async () => {

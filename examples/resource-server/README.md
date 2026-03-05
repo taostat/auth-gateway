@@ -68,7 +68,7 @@ An Express server that acts as a protected API (resource server). It validates a
      "message": "Access granted",
      "claims": {
        "sub": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
-       "scopes": ["subnet:1:validator"],
+       "scope": "subnet:1:validator",
        "iss": "http://localhost:3000",
        "aud": "bittensor-apps",
        "exp": 1700000000
@@ -82,7 +82,7 @@ An Express server that acts as a protected API (resource server). It validates a
 
 - **JWKS fetching** -- `createRemoteJWKSet` from the `jose` library fetches and caches the gateway's public keys. The keys are refreshed automatically when they rotate.
 - **Issuer and audience** -- The `jwtVerify` call validates both `iss` (must match the gateway's origin) and `aud` (must be `bittensor-apps`). Tokens that fail these checks are rejected.
-- **Scope enforcement** -- When `REQUIRED_SCOPE` is set, the server checks that the token's `scopes` array includes the required value. This is optional; omit the env var to skip scope checks.
+- **Scope enforcement** -- When `REQUIRED_SCOPE` is set, the server checks that the token's `scope` string includes the required value. This is optional; omit the env var to skip scope checks.
 - **No shared secrets** -- RS256 means the resource server only needs the gateway's public key (fetched via JWKS). There is no shared secret between the gateway and the resource server.
 
 ## Configuration

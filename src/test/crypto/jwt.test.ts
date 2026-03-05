@@ -1,8 +1,9 @@
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import jwt from 'jsonwebtoken';
 
+import { config } from '../../config';
 import { loadKeys, getPrivateKey } from '../../crypto/keys';
-import { createAccessToken, createRefreshToken, createAuthCode, verifyToken } from '../../crypto/jwt';
+import { createAccessToken, createRefreshToken, createAuthCode, createIdToken, computeAtHash, verifyToken, verifyIdToken } from '../../crypto/jwt';
 
 beforeAll(async () => {
   await cryptoWaitReady();
@@ -17,16 +18,16 @@ describe('JWT', () => {
     const decoded = verifyToken(token);
     expect(decoded.sub).toBe(address);
     expect(decoded.type).toBe('access');
-    expect(decoded.scopes).toEqual([]);
-    expect(decoded.iss).toBe('https://auth.taostats.io');
+    expect(decoded.scope).toBe('');
+    expect(decoded.iss).toBe(config.jwtIssuer);
     expect(decoded.aud).toBe('bittensor-apps');
   });
 
-  test('createAccessToken includes scopes', () => {
+  test('createAccessToken includes scope', () => {
     const scopes = ['subnet:1:miner', 'subnet:2:validator'];
     const token = createAccessToken(address, scopes);
     const decoded = verifyToken(token);
-    expect(decoded.scopes).toEqual(scopes);
+    expect(decoded.scope).toBe('subnet:1:miner subnet:2:validator');
   });
 
   test('createRefreshToken has type refresh', () => {
@@ -40,7 +41,7 @@ describe('JWT', () => {
     const token = createAuthCode(address, ['subnet:1:miner']);
     const decoded = verifyToken(token);
     expect(decoded.type).toBe('auth_code');
-    expect(decoded.scopes).toEqual(['subnet:1:miner']);
+    expect(decoded.scope).toBe('subnet:1:miner');
     // Auth code expires in 30s
     expect(decoded.exp - decoded.iat).toBe(30);
   });
@@ -49,7 +50,7 @@ describe('JWT', () => {
     const token = jwt.sign(
       { sub: address, scopes: [], type: 'access' },
       getPrivateKey(),
-      { algorithm: 'RS256', issuer: 'https://auth.taostats.io', audience: 'bittensor-apps', expiresIn: -10 },
+      { algorithm: 'RS256', issuer: config.jwtIssuer, audience: 'bittensor-apps', expiresIn: -10 },
     );
     expect(() => verifyToken(token)).toThrow();
   });
@@ -58,7 +59,7 @@ describe('JWT', () => {
     const token = jwt.sign(
       { sub: address, scopes: [], type: 'access' },
       'some-secret',
-      { algorithm: 'HS256', issuer: 'https://auth.taostats.io', audience: 'bittensor-apps', expiresIn: 900 },
+      { algorithm: 'HS256', issuer: config.jwtIssuer, audience: 'bittensor-apps', expiresIn: 900 },
     );
     expect(() => verifyToken(token)).toThrow();
   });
@@ -70,6 +71,60 @@ describe('JWT', () => {
       { algorithm: 'RS256', issuer: 'wrong-issuer', audience: 'bittensor-apps', expiresIn: 900 },
     );
     expect(() => verifyToken(token)).toThrow();
+  });
+
+  test('createIdToken has type id, aud is client_id, and includes at_hash', () => {
+    const accessToken = createAccessToken(address, ['subnet:1:miner']);
+    const authTime = Math.floor(Date.now() / 1000);
+    const idToken = createIdToken(address, ['subnet:1:miner'], accessToken, {
+      client_id: 'my-client', auth_time: authTime,
+    });
+    const decoded = verifyIdToken(idToken, 'my-client');
+    expect(decoded.type).toBe('id');
+    expect(decoded.sub).toBe(address);
+    expect(decoded.aud).toBe('my-client');
+    expect(decoded.at_hash).toBe(computeAtHash(accessToken));
+    expect(decoded.auth_time).toBe(authTime);
+  });
+
+  test('createIdToken includes nonce when provided', () => {
+    const accessToken = createAccessToken(address, []);
+    const idToken = createIdToken(address, [], accessToken, {
+      client_id: 'my-client', auth_time: Math.floor(Date.now() / 1000), nonce: 'test-nonce',
+    });
+    const decoded = verifyIdToken(idToken, 'my-client');
+    expect(decoded.nonce).toBe('test-nonce');
+  });
+
+  test('createIdToken omits nonce when not provided', () => {
+    const accessToken = createAccessToken(address, []);
+    const idToken = createIdToken(address, [], accessToken, {
+      client_id: 'my-client', auth_time: Math.floor(Date.now() / 1000),
+    });
+    const decoded = verifyIdToken(idToken, 'my-client');
+    expect(decoded.nonce).toBeUndefined();
+  });
+
+  test('verifyIdToken rejects wrong audience', () => {
+    const accessToken = createAccessToken(address, []);
+    const idToken = createIdToken(address, [], accessToken, {
+      client_id: 'my-client', auth_time: Math.floor(Date.now() / 1000),
+    });
+    expect(() => verifyIdToken(idToken, 'wrong-client')).toThrow();
+  });
+
+  test('computeAtHash returns left half of SHA-256 base64url', () => {
+    const hash = computeAtHash('test-token');
+    expect(typeof hash).toBe('string');
+    expect(hash.length).toBeGreaterThan(0);
+    // base64url: no +, /, or = characters
+    expect(hash).not.toMatch(/[+/=]/);
+  });
+
+  test('createAuthCode includes nonce when provided', () => {
+    const token = createAuthCode(address, [], { nonce: 'oidc-nonce-123' });
+    const decoded = verifyToken(token);
+    expect(decoded.nonce).toBe('oidc-nonce-123');
   });
 
   test('access and refresh tokens have different expiry', () => {

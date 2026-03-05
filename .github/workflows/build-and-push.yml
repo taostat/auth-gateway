@@ -31,7 +31,7 @@ jobs:
       - name: Verify package.json version matches tag
         run: |
           TAG="${GITHUB_REF#refs/tags/v}"
-          TAG="${TAG%-dev}"
+          TAG="${TAG%%-*}"
           PKG=$(node -p "require('./package.json').version")
           if [ "$TAG" != "$PKG" ]; then
             echo "::error::Tag v${TAG} does not match package.json version ${PKG}"

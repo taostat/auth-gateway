@@ -33,6 +33,7 @@ import { buildTestApp } from '../helpers/app';
 import { getAliceAddress, signWithAlice } from '../helpers/sign';
 import { generateS256Challenge } from '../../crypto/pkce';
 import { clearTestChallenges, clearTestConsumedCodes } from '../helpers/mockDb';
+import { verifyIdToken, computeAtHash } from '../../crypto/jwt';
 import crypto from 'crypto';
 
 let app: FastifyInstance;
@@ -1004,6 +1005,99 @@ describe('OAuth Routes', () => {
       expect(successBody.access_token).toBeDefined();
       expect(successBody.refresh_token).toBeDefined();
       expect(successBody.refresh_token).not.toBe(refresh_token);
+    });
+  });
+
+  describe('ID token issuance', () => {
+    async function getTokensViaAuthCode(opts: { scopes?: string[]; extraCallbackFields?: Record<string, string> } = {}): Promise<Record<string, unknown>> {
+      const scopes = opts.scopes ?? ['openid'];
+      const address = await getAliceAddress();
+      const challengeRes = await app.inject({ method: 'POST', url: '/v1/auth/challenge', payload: { address, scopes } });
+      const { nonce } = JSON.parse(challengeRes.payload);
+      const signature = await signWithAlice(nonce);
+
+      const callbackRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/callback',
+        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback', ...(opts.extraCallbackFields ?? {}) },
+      });
+      expect(callbackRes.statusCode).toBe(200);
+      const { code } = JSON.parse(callbackRes.payload);
+
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: { grant_type: 'authorization_code', code, client_id: TEST_CLIENT_ID, client_secret: TEST_CLIENT_SECRET, redirect_uri: 'http://localhost:3001/callback' },
+      });
+      expect(tokenRes.statusCode).toBe(200);
+      return JSON.parse(tokenRes.payload);
+    }
+
+    test('token response includes id_token', async () => {
+      const body = await getTokensViaAuthCode();
+      expect(body.id_token).toBeDefined();
+      expect(typeof body.id_token).toBe('string');
+    });
+
+    test('id_token has correct claims and aud is client_id', async () => {
+      const body = await getTokensViaAuthCode();
+      const claims = verifyIdToken(body.id_token as string, TEST_CLIENT_ID);
+      expect(claims.type).toBe('id');
+      expect(claims.sub).toBe(await getAliceAddress());
+      expect(claims.aud).toBe(TEST_CLIENT_ID);
+      expect(claims.at_hash).toBeDefined();
+      expect(claims.auth_time).toBeDefined();
+      expect(typeof claims.auth_time).toBe('number');
+    });
+
+    test('at_hash matches access token', async () => {
+      const body = await getTokensViaAuthCode();
+      const claims = verifyIdToken(body.id_token as string, TEST_CLIENT_ID);
+      expect(claims.at_hash).toBe(computeAtHash(body.access_token as string));
+    });
+
+    test('id_token is absent when openid scope not requested', async () => {
+      const body = await getTokensViaAuthCode({ scopes: [] });
+      expect(body.id_token).toBeUndefined();
+    });
+
+    test('nonce is included in id_token when provided', async () => {
+      const oidcNonce = 'test-nonce-12345';
+      const body = await getTokensViaAuthCode({ extraCallbackFields: { oidc_nonce: oidcNonce } });
+      const claims = verifyIdToken(body.id_token as string, TEST_CLIENT_ID);
+      expect(claims.nonce).toBe(oidcNonce);
+    });
+
+    test('nonce is absent from id_token when not provided', async () => {
+      const body = await getTokensViaAuthCode();
+      const claims = verifyIdToken(body.id_token as string, TEST_CLIENT_ID);
+      expect(claims.nonce).toBeUndefined();
+    });
+
+    test('id_token fails verification with wrong audience', async () => {
+      const body = await getTokensViaAuthCode();
+      expect(() => verifyIdToken(body.id_token as string, 'wrong-client-id')).toThrow();
+    });
+
+    test('refresh token response includes id_token with stable auth_time', async () => {
+      const body = await getTokensViaAuthCode();
+      const origClaims = verifyIdToken(body.id_token as string, TEST_CLIENT_ID);
+
+      const refreshRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: { grant_type: 'refresh_token', refresh_token: body.refresh_token, client_id: TEST_CLIENT_ID, client_secret: TEST_CLIENT_SECRET },
+      });
+      expect(refreshRes.statusCode).toBe(200);
+      const refreshBody = JSON.parse(refreshRes.payload);
+      expect(refreshBody.id_token).toBeDefined();
+
+      const claims = verifyIdToken(refreshBody.id_token as string, TEST_CLIENT_ID);
+      expect(claims.type).toBe('id');
+      expect(claims.aud).toBe(TEST_CLIENT_ID);
+      expect(claims.at_hash).toBe(computeAtHash(refreshBody.access_token as string));
+      expect(claims.auth_time).toBe(origClaims.auth_time);
+      expect(claims.nonce).toBeUndefined();
     });
   });
 

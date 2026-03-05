@@ -84,7 +84,7 @@ async function main() {
   while (true) {
     await new Promise((r) => setTimeout(r, pollInterval));
 
-    const tokenRes = await fetch(`${BASE_URL}/v1/device/token`, {
+    const tokenRes = await fetch(`${BASE_URL}/v1/oauth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -114,7 +114,7 @@ async function main() {
     const payload = decodeJwtPayload(body.access_token as string);
     console.log(bold("  Token details:"));
     console.log(`    Address : ${cyan(payload.sub as string)}`);
-    console.log(`    Scopes  : ${cyan((payload.scopes as string[])?.join(", ") ?? "(none)")}`);
+    console.log(`    Scopes  : ${cyan((payload.scope as string) || "(none)")}`);
     console.log(`    Expires : ${cyan(new Date((payload.exp as number) * 1000).toISOString())}`);
 
     console.log(dim("\n  Access token:"));

@@ -19,6 +19,7 @@
 ## Key Features
 
 - **Three auth flows**: Challenge-response (simple), OAuth2 authorization code (web apps), Device code / RFC 8628 (CLIs)
+- **OIDC support**: Discovery metadata + ID token issuance (`openid` scope, optional `nonce`)
 - **On-chain scope verification**: Validates miner, validator, owner, and holder roles against Subtensor state
 - **Epoch-aligned re-verification**: Skips redundant on-chain calls within the same epoch
 - **PKCE support**: Required for public clients (S256 only)
@@ -127,9 +128,9 @@ npx tsx scripts/create-client.ts
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/v1/oauth/authorize` | GET | Authorization page (browser redirect) |
+| `/v1/oauth/authorize` | GET | Authorization page (browser redirect, supports OIDC `nonce`) |
 | `/v1/oauth/callback` | POST | Internal: exchange signed challenge for auth code |
-| `/v1/oauth/token` | POST | Exchange auth code for access + refresh tokens |
+| `/v1/oauth/token` | POST | Exchange auth code for access + refresh tokens (+ `id_token` when `openid` is requested) |
 | `/v1/oauth/refresh` | POST | Refresh token rotation |
 
 ### Device Code (RFC 8628)
@@ -137,7 +138,7 @@ npx tsx scripts/create-client.ts
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/v1/device/code` | POST | Request a device code + user code |
-| `/v1/device/token` | POST | Poll for token (CLI polling) |
+| `/v1/oauth/token` | POST | Poll for token (CLI polling, `grant_type=urn:ietf:params:oauth:grant-type:device_code`) |
 | `/v1/device/verify` | GET | User-facing verification page |
 | `/v1/device/approve` | POST | Initiate approval (creates challenge) |
 | `/v1/device/confirm` | POST | Confirm approval with signature |
@@ -159,6 +160,14 @@ npx tsx scripts/create-client.ts
 | `/.well-known/jwks.json` | GET | JSON Web Key Set |
 | `/health` | GET | Health check (subtensor + database) |
 
+## OpenID Connect (OIDC)
+
+- Discovery metadata is served at `/.well-known/openid-configuration`.
+- Request the `openid` scope in `/v1/oauth/authorize` to receive an `id_token` from `/v1/oauth/token`.
+- Pass `nonce` on `/v1/oauth/authorize` to bind browser session state; the same value is returned in the `id_token` claim.
+- `id_token` audience (`aud`) is the OAuth client ID; access/refresh tokens use `JWT_AUDIENCE`.
+- For OIDC consistency, keep `JWT_ISSUER` aligned with `PUBLIC_URL` (enforced in production).
+
 ## Configuration
 
 | Variable | Description | Default | Required |
@@ -171,7 +180,7 @@ npx tsx scripts/create-client.ts
 | `RSA_PUBLIC_KEY_PATH` | Path to RSA public key | — | Yes* |
 | `RSA_PRIVATE_KEY_BASE64` | Base64-encoded private key | — | Yes* |
 | `RSA_PUBLIC_KEY_BASE64` | Base64-encoded public key | — | Yes* |
-| `JWT_ISSUER` | JWT issuer claim | `auth.taostats.io` | No |
+| `JWT_ISSUER` | JWT issuer claim (should match `PUBLIC_URL` for OIDC) | `http://localhost:3000` | No |
 | `JWT_AUDIENCE` | JWT audience claim | `bittensor-apps` | No |
 | `JWT_ACCESS_TOKEN_EXPIRY` | Access token TTL fallback (seconds) | `900` | No |
 | `JWT_REFRESH_TOKEN_EXPIRY` | Refresh token TTL (seconds) | `86400` | No |
@@ -341,13 +350,33 @@ Migration files are in `migrations/` and tracked in the `_migrations` table.
 
 ## For Developers: Integrating with Auth Gateway
 
-The gateway is a standard OAuth2/OIDC provider. Any OAuth2 client library will work.
+The gateway implements OAuth2 plus a focused OIDC subset (Discovery + JWKS + Authorization Code + PKCE + ID token). Most OAuth2/OIDC client libraries work with this profile.
 
 ### Quick Integration
 
 1. **Register a client** via the admin API or `npm run setup-examples`
 2. **Discover endpoints** via `/.well-known/openid-configuration`
 3. **Validate tokens** in your resource server using the JWKS at `/.well-known/jwks.json`
+4. **If using OIDC login** request `openid`, include `nonce`, and validate `id_token` (`iss`, `aud`, `exp`, `nonce`, `at_hash`)
+
+### OIDC Compatibility Notes
+
+Supported OIDC surface:
+
+- Authorization Code flow (`response_type=code`) with PKCE `S256`
+- Discovery document (`/.well-known/openid-configuration`) and JWKS (`/.well-known/jwks.json`)
+- `openid` scope and ID token issuance from `/v1/oauth/token`
+- `nonce` passthrough (`/v1/oauth/authorize` → `id_token.nonce`)
+- Core ID token claims used by common libs: `iss`, `sub`, `aud`, `exp`, `iat`, `auth_time`, `at_hash` (plus gateway-specific `hotkey`, `coldkey`, `client_id`)
+
+Not currently provided:
+
+- UserInfo endpoint
+- Session/logout claims/endpoints (`sid`, front-channel/back-channel logout)
+- Authentication context claims (`acr`, `amr`)
+- Implicit/hybrid response types
+
+If your library expects unsupported claims like `sid` or `acr`, configure those checks as optional/disabled.
 
 ### Examples
 
@@ -356,7 +385,7 @@ See the [`examples/`](./examples/) directory for complete, runnable integration 
 | Example | Flow | Description |
 |---------|------|-------------|
 | [`web-app-raw`](./examples/web-app-raw/) | Authorization Code + PKCE | Single HTML file, zero dependencies |
-| [`web-app-oidc`](./examples/web-app-oidc/) | Authorization Code + PKCE | Uses `oidc-client-ts` library |
+| [`web-app-oidc`](./examples/web-app-oidc/) | OIDC Authorization Code + PKCE | Uses `oidc-client-ts` library |
 | [`cli-device-code`](./examples/cli-device-code/) | Device Code (RFC 8628) | Standalone Node.js CLI script |
 | [`resource-server`](./examples/resource-server/) | Token Validation | Express + jose JWKS verification |
 
@@ -367,14 +396,13 @@ Access tokens are RS256 JWTs with these claims:
 ```json
 {
   "sub": "5GrwvaEF...",        // SS58 wallet address
-  "scopes": ["subnet:1:validator"],
+  "scope": "subnet:1:validator",
   "type": "access",
   "jti": "uuid-v4",
   "hotkey": "5FHneW46...",     // hotkey address (null if signer is coldkey)
   "coldkey": "5GrwvaEF...",    // coldkey address (always present)
   "client_id": "...",          // present in OAuth flows
-  "scope": "subnet:1:validator",
-  "iss": "auth.taostats.io",
+  "iss": "https://auth.taostats.io",
   "aud": "bittensor-apps",
   "exp": 1234567890,
   "iat": 1234567800
@@ -382,6 +410,25 @@ Access tokens are RS256 JWTs with these claims:
 ```
 
 The `hotkey` and `coldkey` claims are resolved from the Subtensor chain at authentication time. If the signer is a registered hotkey, `hotkey` is set to the signing address and `coldkey` to its owner. If the signer is a coldkey (or unregistered address), `hotkey` is `null` and `coldkey` is the signing address. These are point-in-time snapshots — a hotkey could deregister between token issuance and use.
+
+When `openid` is requested, the token response also includes an OIDC `id_token` with claims like:
+
+```json
+{
+  "sub": "5GrwvaEF...",
+  "type": "id",
+  "client_id": "your-client-id",
+  "aud": "your-client-id",
+  "iss": "https://auth.taostats.io",
+  "auth_time": 1234567800,
+  "at_hash": "base64url-hash",
+  "nonce": "optional-nonce-if-supplied",
+  "hotkey": "5FHneW46...",
+  "coldkey": "5GrwvaEF...",
+  "exp": 1234567890,
+  "iat": 1234567800
+}
+```
 
 ## License
 

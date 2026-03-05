@@ -8,6 +8,7 @@ export interface DbDeviceCode {
   approved: boolean;
   denied: boolean;
   address: string | null;
+  approvedAt: Date | null;
   createdAt: Date;
   expiresAt: Date;
   lastPolledAt: Date | null;
@@ -22,6 +23,7 @@ function rowToDeviceCode(row: any): DbDeviceCode {
     approved: row.approved,
     denied: row.denied,
     address: row.address,
+    approvedAt: row.approved_at,
     createdAt: row.created_at,
     expiresAt: row.expires_at,
     lastPolledAt: row.last_polled_at,
@@ -62,7 +64,7 @@ export async function getDeviceCodeByUserCode(userCode: string): Promise<DbDevic
 export async function approveDeviceCode(userCode: string, address: string): Promise<boolean> {
   const pool = getPool();
   const { rowCount } = await pool.query(
-    'UPDATE device_codes SET approved = TRUE, address = $1 WHERE user_code = $2 AND approved = FALSE AND denied = FALSE',
+    'UPDATE device_codes SET approved = TRUE, address = $1, approved_at = now() WHERE user_code = $2 AND approved = FALSE AND denied = FALSE',
     [address, userCode],
   );
   return (rowCount ?? 0) > 0;

@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import { getPool } from './pool';
 import { config } from '../config';
 
@@ -12,7 +12,7 @@ export interface DbChallenge {
 export async function createChallenge(address: string | null, scopes: string[] = []): Promise<DbChallenge> {
   const pool = getPool();
   const scopesCsv = scopes.length > 0 ? scopes.join(',') : 'none';
-  const nonce = `bittensor-auth:${scopesCsv}:${uuidv4()}`;
+  const nonce = `bittensor-auth:${scopesCsv}:${randomUUID()}`;
   const { rows } = await pool.query(
     'INSERT INTO challenges (nonce, address, scopes) VALUES ($1, $2, $3) RETURNING nonce, address, scopes, created_at',
     [nonce, address, scopes],
