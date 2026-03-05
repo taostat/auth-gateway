@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=auth_gateway
+      - POSTGRES_USER=auth
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-auth_dev_password}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  auth-gateway:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    depends_on:
+      - postgres
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3000
+      - HOST=0.0.0.0
+      - RSA_PRIVATE_KEY_BASE64=${RSA_PRIVATE_KEY_BASE64}
+      - RSA_PUBLIC_KEY_BASE64=${RSA_PUBLIC_KEY_BASE64}
+      - JWT_ISSUER=${JWT_ISSUER:-https://auth.taostats.io}
+      - JWT_AUDIENCE=${JWT_AUDIENCE:-bittensor-apps}
+      - JWT_ACCESS_TOKEN_EXPIRY=${JWT_ACCESS_TOKEN_EXPIRY:-900}
+      - JWT_REFRESH_TOKEN_EXPIRY=${JWT_REFRESH_TOKEN_EXPIRY:-86400}
+      - SUBTENSOR_WS_URL=${SUBTENSOR_WS_URL:-wss://entrypoint-finney.opentensor.ai:443}
+      - TAOSTATS_API_URL=${TAOSTATS_API_URL:-https://api.taostats.io}
+      - CHALLENGE_TTL_SECONDS=${CHALLENGE_TTL_SECONDS:-120}
+      - DEVICE_CODE_TTL_SECONDS=${DEVICE_CODE_TTL_SECONDS:-300}
+      - DEVICE_CODE_POLL_INTERVAL=${DEVICE_CODE_POLL_INTERVAL:-5}
+      - VERIFICATION_URI=${VERIFICATION_URI:-https://auth.taostats.io/v1/device/verify}
+      - RATE_LIMIT_GLOBAL=${RATE_LIMIT_GLOBAL:-10}
+      - RATE_LIMIT_CHALLENGE=${RATE_LIMIT_CHALLENGE:-5}
+      - DATABASE_URL=postgresql://auth:${POSTGRES_PASSWORD:-auth_dev_password}@postgres:5432/auth_gateway
+      - ADMIN_API_KEY=${ADMIN_API_KEY}
+      - RUN_MIGRATIONS=${RUN_MIGRATIONS:-true}
+      - PUBLIC_URL=${PUBLIC_URL:-https://auth.taostats.io}
+      - DEMO_MODE=${DEMO_MODE:-false}
+    volumes:
+      - ./keys:/app/keys:ro
+    restart: unless-stopped
+
+volumes:
+  pgdata:

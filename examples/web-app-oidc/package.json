@@ -1,0 +1,10 @@
+{
+  "name": "web-app-oidc-example",
+  "private": true,
+  "scripts": {
+    "dev": "npx serve -l 5173"
+  },
+  "devDependencies": {
+    "serve": "^14.0.0"
+  }
+}

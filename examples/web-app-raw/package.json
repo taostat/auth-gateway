@@ -1,0 +1,10 @@
+{
+  "name": "web-app-raw-example",
+  "private": true,
+  "scripts": {
+    "dev": "npx serve -l 8080"
+  },
+  "devDependencies": {
+    "serve": "^14.0.0"
+  }
+}

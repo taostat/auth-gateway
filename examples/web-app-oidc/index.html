@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Auth Gateway - OIDC Demo</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: #0a0a0a;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem;
+    }
+
+    h1 {
+      color: #4fc3f7;
+      margin-bottom: 0.5rem;
+      font-size: 1.8rem;
+    }
+
+    .subtitle {
+      color: #888;
+      margin-bottom: 2rem;
+      font-size: 0.95rem;
+    }
+
+    .card {
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 8px;
+      padding: 1.5rem;
+      width: 100%;
+      max-width: 640px;
+      margin-bottom: 1.5rem;
+    }
+
+    .card h2 {
+      color: #4fc3f7;
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid #222;
+      padding-bottom: 0.5rem;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    button {
+      background: #4fc3f7;
+      color: #0a0a0a;
+      border: none;
+      border-radius: 6px;
+      padding: 0.6rem 1.2rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, opacity 0.2s;
+    }
+
+    button:hover {
+      background: #81d4fa;
+    }
+
+    button.secondary {
+      background: transparent;
+      color: #4fc3f7;
+      border: 1px solid #4fc3f7;
+    }
+
+    button.secondary:hover {
+      background: rgba(79, 195, 247, 0.1);
+    }
+
+    button.danger {
+      background: transparent;
+      color: #ef5350;
+      border: 1px solid #ef5350;
+    }
+
+    button.danger:hover {
+      background: rgba(239, 83, 80, 0.1);
+    }
+
+    .claims {
+      background: #0a0a0a;
+      border: 1px solid #222;
+      border-radius: 6px;
+      padding: 1rem;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 0.85rem;
+      white-space: pre-wrap;
+      word-break: break-all;
+      line-height: 1.6;
+      color: #c5e1a5;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .status {
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      margin-bottom: 1rem;
+    }
+
+    .status.authenticated {
+      background: rgba(76, 175, 80, 0.15);
+      border: 1px solid rgba(76, 175, 80, 0.3);
+      color: #81c784;
+    }
+
+    .status.unauthenticated {
+      background: rgba(255, 152, 0, 0.15);
+      border: 1px solid rgba(255, 152, 0, 0.3);
+      color: #ffb74d;
+    }
+
+    .status.error {
+      background: rgba(239, 83, 80, 0.15);
+      border: 1px solid rgba(239, 83, 80, 0.3);
+      color: #ef9a9a;
+    }
+
+    .note {
+      background: rgba(79, 195, 247, 0.08);
+      border: 1px solid rgba(79, 195, 247, 0.2);
+      border-radius: 6px;
+      padding: 1rem;
+      font-size: 0.85rem;
+      color: #90caf9;
+      line-height: 1.5;
+    }
+
+    .note code {
+      background: rgba(79, 195, 247, 0.15);
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.8rem;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .claim-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.4rem 0;
+      border-bottom: 1px solid #1a1a1a;
+    }
+
+    .claim-key {
+      color: #4fc3f7;
+      font-weight: 600;
+    }
+
+    .claim-value {
+      color: #c5e1a5;
+      text-align: right;
+      max-width: 60%;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Auth Gateway OIDC Demo</h1>
+  <p class="subtitle">OAuth2 Authorization Code flow with oidc-client-ts</p>
+
+  <!-- Status -->
+  <div class="card">
+    <div id="status" class="status unauthenticated">Not authenticated</div>
+
+    <!-- Login buttons (shown when logged out) -->
+    <div id="login-buttons" class="buttons">
+      <button onclick="login()">Login</button>
+      <button onclick="loginAsValidator()" class="secondary">Login as Validator</button>
+      <button onclick="loginAsHolder()" class="secondary">Login as Holder</button>
+    </div>
+
+    <!-- Logout button (shown when logged in) -->
+    <div id="logout-buttons" class="buttons hidden">
+      <button onclick="logout()" class="danger">Logout</button>
+    </div>
+  </div>
+
+  <!-- Claims display -->
+  <div id="claims-card" class="card hidden">
+    <h2>JWT Claims</h2>
+    <div id="claims" class="claims"></div>
+  </div>
+
+  <!-- Raw token display -->
+  <div id="token-card" class="card hidden">
+    <h2>Access Token</h2>
+    <div id="token" class="claims"></div>
+  </div>
+
+  <!-- Info note -->
+  <div class="card">
+    <div class="note">
+      This demo relies on the auth gateway's OIDC discovery endpoint at
+      <code>{authority}/.well-known/openid-configuration</code>.
+      The <code>oidc-client-ts</code> library automatically fetches this document to discover
+      the authorization, token, and JWKS endpoints. Make sure the gateway is running
+      and the <code>client_id</code> is registered before attempting to log in.
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/oidc-client-ts@3/dist/browser/oidc-client-ts.min.js"></script>
+  <script>
+    // ---------------------------------------------------------------------------
+    // Configuration
+    // ---------------------------------------------------------------------------
+
+    const AUTH_GATEWAY_URL = 'http://localhost:3000';
+
+    const settings = {
+      authority: AUTH_GATEWAY_URL,
+      client_id: '', // Set this to your registered client_id
+      redirect_uri: 'http://localhost:5173',
+      response_type: 'code',
+      scope: '',
+      automaticSilentRenew: false,
+    };
+
+    const mgr = new oidc.UserManager(settings);
+
+    // ---------------------------------------------------------------------------
+    // Auth actions
+    // ---------------------------------------------------------------------------
+
+    function login(extraArgs) {
+      mgr.signinRedirect(extraArgs).catch(handleError);
+    }
+
+    function loginAsValidator() {
+      login({ scope: 'subnet:1:validator' });
+    }
+
+    function loginAsHolder() {
+      login({ scope: 'subnet:1:holder' });
+    }
+
+    function logout() {
+      mgr.removeUser().then(() => {
+        updateUI(null);
+      }).catch(handleError);
+    }
+
+    // ---------------------------------------------------------------------------
+    // JWT helpers
+    // ---------------------------------------------------------------------------
+
+    function decodeJwt(token) {
+      try {
+        const parts = token.split('.');
+        if (parts.length !== 3) return null;
+        const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        return JSON.parse(atob(payload));
+      } catch {
+        return null;
+      }
+    }
+
+    // ---------------------------------------------------------------------------
+    // UI helpers
+    // ---------------------------------------------------------------------------
+
+    function updateUI(user) {
+      const statusEl = document.getElementById('status');
+      const loginButtons = document.getElementById('login-buttons');
+      const logoutButtons = document.getElementById('logout-buttons');
+      const claimsCard = document.getElementById('claims-card');
+      const claimsEl = document.getElementById('claims');
+      const tokenCard = document.getElementById('token-card');
+      const tokenEl = document.getElementById('token');
+
+      if (user && user.access_token) {
+        statusEl.className = 'status authenticated';
+        statusEl.textContent = 'Authenticated';
+        loginButtons.classList.add('hidden');
+        logoutButtons.classList.remove('hidden');
+
+        const claims = decodeJwt(user.access_token);
+        if (claims) {
+          claimsCard.classList.remove('hidden');
+          claimsEl.textContent = JSON.stringify(claims, null, 2);
+        }
+
+        tokenCard.classList.remove('hidden');
+        tokenEl.textContent = user.access_token;
+      } else {
+        statusEl.className = 'status unauthenticated';
+        statusEl.textContent = 'Not authenticated';
+        loginButtons.classList.remove('hidden');
+        logoutButtons.classList.add('hidden');
+        claimsCard.classList.add('hidden');
+        tokenCard.classList.add('hidden');
+      }
+    }
+
+    function showError(message) {
+      const statusEl = document.getElementById('status');
+      statusEl.className = 'status error';
+      statusEl.textContent = 'Error: ' + message;
+    }
+
+    function handleError(err) {
+      console.error(err);
+      showError(err.message || String(err));
+    }
+
+    // ---------------------------------------------------------------------------
+    // Initialization — handle callback or load existing session
+    // ---------------------------------------------------------------------------
+
+    (async function init() {
+      try {
+        // If the URL contains a code parameter, process the signin callback
+        if (window.location.search.includes('code=')) {
+          const user = await mgr.signinRedirectCallback();
+          // Clean up the URL
+          window.history.replaceState({}, document.title, window.location.pathname);
+          updateUI(user);
+          return;
+        }
+
+        // Otherwise check for an existing session
+        const user = await mgr.getUser();
+        updateUI(user);
+      } catch (err) {
+        // Clean up the URL on error too
+        window.history.replaceState({}, document.title, window.location.pathname);
+        handleError(err);
+      }
+    })();
+  </script>
+
+</body>
+</html>

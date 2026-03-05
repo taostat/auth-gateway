@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Taostats Auth Gateway - OAuth2 PKCE Demo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a0a;
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 1.6rem;
+      margin-bottom: 4px;
+      color: #fff;
+    }
+
+    .subtitle {
+      color: #666;
+      font-size: 0.9rem;
+      margin-bottom: 2rem;
+    }
+
+    /* Steps indicator */
+    .steps {
+      display: flex;
+      gap: 2px;
+      margin-bottom: 2rem;
+    }
+
+    .step {
+      flex: 1;
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 8px;
+      padding: 12px 10px;
+      text-align: center;
+      transition: border-color 0.3s, background 0.3s;
+    }
+
+    .step.active {
+      border-color: #4fc3f7;
+      background: #0d1b2a;
+    }
+
+    .step.done {
+      border-color: #2e7d32;
+      background: #0a1a0d;
+    }
+
+    .step-number {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      line-height: 24px;
+      border-radius: 50%;
+      background: #222;
+      color: #666;
+      font-size: 0.75rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .step.active .step-number {
+      background: #4fc3f7;
+      color: #000;
+    }
+
+    .step.done .step-number {
+      background: #4caf50;
+      color: #000;
+    }
+
+    .step-label {
+      display: block;
+      font-size: 0.7rem;
+      color: #555;
+      line-height: 1.3;
+    }
+
+    .step.active .step-label { color: #4fc3f7; }
+    .step.done .step-label { color: #4caf50; }
+
+    /* Cards */
+    .card {
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+
+    .card h2 {
+      font-size: 1.1rem;
+      color: #fff;
+      margin-bottom: 16px;
+    }
+
+    .card h3 {
+      font-size: 0.85rem;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+      margin-top: 16px;
+    }
+
+    .card h3:first-child { margin-top: 0; }
+
+    /* Buttons */
+    .btn-group {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    button {
+      font-family: inherit;
+      border: none;
+      padding: 14px 20px;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-primary {
+      background: #4fc3f7;
+      color: #000;
+      font-weight: 600;
+    }
+
+    .btn-primary:hover { background: #29b6f6; }
+
+    .btn-secondary {
+      background: #1a1a1a;
+      color: #e0e0e0;
+      border: 1px solid #333;
+    }
+
+    .btn-secondary:hover { background: #222; }
+
+    .btn-scope {
+      text-align: left;
+    }
+
+    .btn-scope .scope-name {
+      display: block;
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: #888;
+      margin-top: 2px;
+    }
+
+    /* Claims table */
+    .claims-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .claims-table td {
+      padding: 8px 0;
+      border-bottom: 1px solid #1a1a1a;
+      font-size: 0.9rem;
+      vertical-align: top;
+    }
+
+    .claims-table td:first-child {
+      color: #888;
+      width: 100px;
+      font-weight: 500;
+    }
+
+    .claims-table td:last-child {
+      font-family: monospace;
+      font-size: 0.85rem;
+      word-break: break-all;
+    }
+
+    /* Token display */
+    .token-box {
+      background: #0a0a0a;
+      border: 1px solid #1a1a1a;
+      border-radius: 8px;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 0.75rem;
+      word-break: break-all;
+      color: #888;
+      max-height: 120px;
+      overflow-y: auto;
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+
+    /* Status / errors */
+    .status-msg {
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      margin-top: 12px;
+      display: none;
+    }
+
+    .status-msg.error {
+      display: block;
+      background: #1a0a0a;
+      border: 1px solid #552222;
+      color: #ff5252;
+    }
+
+    .status-msg.info {
+      display: block;
+      background: #0d1b2a;
+      border: 1px solid #1a3a5c;
+      color: #4fc3f7;
+    }
+
+    .hidden { display: none !important; }
+
+    /* Log section */
+    .log-entry {
+      font-size: 0.8rem;
+      color: #555;
+      padding: 4px 0;
+      border-bottom: 1px solid #1a1a1a;
+      font-family: monospace;
+    }
+
+    .log-entry .log-time { color: #333; }
+    .log-entry .log-ok { color: #4caf50; }
+    .log-entry .log-err { color: #ff5252; }
+
+    @media (min-width: 600px) {
+      .btn-group { flex-direction: row; }
+      button { flex: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Taostats Auth Gateway</h1>
+    <p class="subtitle">OAuth2 PKCE Demo &mdash; zero build step, zero dependencies</p>
+
+    <!-- Step indicators -->
+    <div class="steps">
+      <div class="step" id="step-1">
+        <div class="step-number">1</div>
+        <span class="step-label">Generate PKCE</span>
+      </div>
+      <div class="step" id="step-2">
+        <div class="step-number">2</div>
+        <span class="step-label">Redirect to Authorize</span>
+      </div>
+      <div class="step" id="step-3">
+        <div class="step-number">3</div>
+        <span class="step-label">Exchange Code</span>
+      </div>
+      <div class="step" id="step-4">
+        <div class="step-number">4</div>
+        <span class="step-label">Display Tokens</span>
+      </div>
+    </div>
+
+    <!-- Login card (shown before auth) -->
+    <div class="card" id="login-card">
+      <h2>Choose an Authentication Flow</h2>
+      <div class="btn-group">
+        <button class="btn-primary btn-scope" id="btn-no-scope" type="button">
+          Login
+          <span class="scope-name">no scopes</span>
+        </button>
+        <button class="btn-secondary btn-scope" id="btn-validator" type="button">
+          Login as Validator
+          <span class="scope-name">subnet:1:validator</span>
+        </button>
+        <button class="btn-secondary btn-scope" id="btn-holder" type="button">
+          Login as Holder
+          <span class="scope-name">subnet:1:holder</span>
+        </button>
+      </div>
+      <div id="login-status" class="status-msg"></div>
+    </div>
+
+    <!-- Result card (shown after token exchange) -->
+    <div class="card hidden" id="result-card">
+      <h2>Authentication Successful</h2>
+
+      <h3>JWT Claims</h3>
+      <table class="claims-table" id="claims-table">
+        <tbody></tbody>
+      </table>
+
+      <h3>Access Token</h3>
+      <div class="token-box" id="access-token-box"></div>
+
+      <h3>Refresh Token</h3>
+      <div class="token-box" id="refresh-token-box"></div>
+
+      <button class="btn-secondary" id="btn-logout" type="button" style="margin-top: 16px; width: 100%;">
+        Logout &amp; Start Over
+      </button>
+    </div>
+
+    <!-- Error card (shown on failure) -->
+    <div class="card hidden" id="error-card">
+      <h2>Authentication Failed</h2>
+      <div id="error-msg" class="status-msg error"></div>
+      <button class="btn-secondary" id="btn-retry" type="button" style="margin-top: 16px; width: 100%;">
+        Try Again
+      </button>
+    </div>
+
+    <!-- Activity log -->
+    <div class="card" id="log-card">
+      <h2>Activity Log</h2>
+      <div id="log-entries"></div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // Configuration
+    // =========================================================================
+    const AUTH_GATEWAY_URL = 'http://localhost:3000';
+    const CLIENT_ID = ''; // <-- Fill in your registered client_id
+    const REDIRECT_URI = 'http://localhost:8080';
+
+    // =========================================================================
+    // DOM references
+    // =========================================================================
+    const $ = (id) => document.getElementById(id);
+
+    const loginCard   = $('login-card');
+    const resultCard  = $('result-card');
+    const errorCard   = $('error-card');
+    const logEntries  = $('log-entries');
+
+    const btnNoScope   = $('btn-no-scope');
+    const btnValidator = $('btn-validator');
+    const btnHolder    = $('btn-holder');
+    const btnLogout    = $('btn-logout');
+    const btnRetry     = $('btn-retry');
+
+    const steps = [1, 2, 3, 4].map((n) => $('step-' + n));
+
+    // =========================================================================
+    // Logging
+    // =========================================================================
+    function log(message, type) {
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+
+      const time = document.createElement('span');
+      time.className = 'log-time';
+      time.textContent = new Date().toLocaleTimeString() + '  ';
+      entry.appendChild(time);
+
+      const msg = document.createElement('span');
+      msg.className = type === 'ok' ? 'log-ok' : type === 'err' ? 'log-err' : '';
+      msg.textContent = message;
+      entry.appendChild(msg);
+
+      logEntries.insertBefore(entry, logEntries.firstChild);
+    }
+
+    // =========================================================================
+    // Step indicators
+    // =========================================================================
+    function setStep(n) {
+      steps.forEach((el, i) => {
+        el.classList.remove('active', 'done');
+        if (i < n - 1) el.classList.add('done');
+        if (i === n - 1) el.classList.add('active');
+      });
+    }
+
+    // =========================================================================
+    // Utility: base64url encode/decode
+    // =========================================================================
+    function base64urlEncode(buffer) {
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    function base64urlDecode(str) {
+      // Pad with '=' to make length a multiple of 4
+      let padded = str.replace(/-/g, '+').replace(/_/g, '/');
+      while (padded.length % 4 !== 0) padded += '=';
+      const binary = atob(padded);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes;
+    }
+
+    // =========================================================================
+    // PKCE: generate verifier + S256 challenge
+    // =========================================================================
+    async function generatePKCE() {
+      // 32 random bytes -> base64url (43 chars)
+      const verifierBytes = crypto.getRandomValues(new Uint8Array(32));
+      const codeVerifier = base64urlEncode(verifierBytes);
+
+      // S256: SHA-256 hash of the verifier, then base64url encode
+      const encoder = new TextEncoder();
+      const digest = await crypto.subtle.digest('SHA-256', encoder.encode(codeVerifier));
+      const codeChallenge = base64urlEncode(digest);
+
+      return { codeVerifier, codeChallenge };
+    }
+
+    // =========================================================================
+    // JWT: decode payload (no verification -- just for display)
+    // =========================================================================
+    function decodeJwtPayload(token) {
+      const parts = token.split('.');
+      if (parts.length !== 3) throw new Error('Invalid JWT format');
+      const payload = base64urlDecode(parts[1]);
+      const text = new TextDecoder().decode(payload);
+      return JSON.parse(text);
+    }
+
+    // =========================================================================
+    // Start login flow
+    // =========================================================================
+    async function startLogin(scopes) {
+      if (!CLIENT_ID) {
+        showLoginError('CLIENT_ID is empty. Register a client and set CLIENT_ID at the top of this file.');
+        return;
+      }
+
+      log('Starting OAuth2 PKCE flow' + (scopes ? ' with scope: ' + scopes : ' with no scopes'), 'ok');
+
+      // Step 1: Generate PKCE
+      setStep(1);
+      log('Generating PKCE code_verifier (32 random bytes) and S256 code_challenge...', 'ok');
+
+      const { codeVerifier, codeChallenge } = await generatePKCE();
+
+      // Store verifier + state in sessionStorage for the callback
+      const state = base64urlEncode(crypto.getRandomValues(new Uint8Array(16)));
+      sessionStorage.setItem('pkce_code_verifier', codeVerifier);
+      sessionStorage.setItem('oauth_state', state);
+
+      log('code_verifier stored in sessionStorage', 'ok');
+      log('code_challenge (S256): ' + codeChallenge, 'ok');
+
+      // Step 2: Redirect to authorize endpoint
+      setStep(2);
+
+      const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: CLIENT_ID,
+        redirect_uri: REDIRECT_URI,
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256',
+        state: state,
+      });
+
+      if (scopes) {
+        params.set('scope', scopes);
+      }
+
+      const authorizeUrl = AUTH_GATEWAY_URL + '/v1/oauth/authorize?' + params.toString();
+      log('Redirecting to: ' + authorizeUrl);
+
+      window.location.href = authorizeUrl;
+    }
+
+    // =========================================================================
+    // Handle callback (exchange code for tokens)
+    // =========================================================================
+    async function handleCallback(code, returnedState) {
+      setStep(3);
+      log('Received authorization code from callback', 'ok');
+
+      // Validate state
+      const savedState = sessionStorage.getItem('oauth_state');
+      if (savedState && returnedState !== savedState) {
+        showError('State mismatch. Possible CSRF attack. Expected: ' + savedState + ', got: ' + returnedState);
+        log('State mismatch -- aborting', 'err');
+        return;
+      }
+      log('State parameter validated', 'ok');
+
+      // Retrieve code_verifier
+      const codeVerifier = sessionStorage.getItem('pkce_code_verifier');
+      if (!codeVerifier) {
+        showError('Missing code_verifier in sessionStorage. Did you start the flow from this page?');
+        log('No code_verifier found in sessionStorage', 'err');
+        return;
+      }
+
+      log('Retrieved code_verifier from sessionStorage', 'ok');
+      log('Exchanging authorization code for tokens via POST /v1/oauth/token ...', 'ok');
+
+      try {
+        const response = await fetch(AUTH_GATEWAY_URL + '/v1/oauth/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            grant_type: 'authorization_code',
+            code: code,
+            client_id: CLIENT_ID,
+            redirect_uri: REDIRECT_URI,
+            code_verifier: codeVerifier,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorBody = await response.json().catch(() => ({ message: 'Unknown error' }));
+          throw new Error(errorBody.message || 'Token exchange failed with status ' + response.status);
+        }
+
+        const data = await response.json();
+        log('Token exchange successful', 'ok');
+
+        // Clean up sessionStorage
+        sessionStorage.removeItem('pkce_code_verifier');
+        sessionStorage.removeItem('oauth_state');
+
+        // Step 4: Display tokens
+        setStep(4);
+        displayTokens(data);
+      } catch (err) {
+        log('Token exchange failed: ' + err.message, 'err');
+        showError(err.message);
+      }
+    }
+
+    // =========================================================================
+    // Display tokens + decoded JWT claims
+    // =========================================================================
+    function displayTokens(data) {
+      loginCard.classList.add('hidden');
+      errorCard.classList.add('hidden');
+      resultCard.classList.remove('hidden');
+
+      // Display raw tokens (textContent for XSS safety)
+      $('access-token-box').textContent = data.access_token;
+      $('refresh-token-box').textContent = data.refresh_token;
+
+      // Decode and display JWT claims
+      try {
+        const claims = decodeJwtPayload(data.access_token);
+        const tbody = $('claims-table').querySelector('tbody');
+        // Clear previous rows
+        while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+
+        const fields = [
+          ['sub', claims.sub],
+          ['scope', typeof claims.scope === 'string' ? claims.scope || '(none)' : '(none)'],
+          ['exp', claims.exp ? new Date(claims.exp * 1000).toLocaleString() + ' (' + claims.exp + ')' : 'N/A'],
+          ['iat', claims.iat ? new Date(claims.iat * 1000).toLocaleString() + ' (' + claims.iat + ')' : 'N/A'],
+          ['type', claims.type || 'N/A'],
+          ['client_id', claims.client_id || 'N/A'],
+          ['iss', claims.iss || 'N/A'],
+          ['expires_in', data.expires_in ? data.expires_in + 's' : 'N/A'],
+        ];
+
+        for (const [label, value] of fields) {
+          const tr = document.createElement('tr');
+          const tdLabel = document.createElement('td');
+          tdLabel.textContent = label;
+          const tdValue = document.createElement('td');
+          tdValue.textContent = String(value);
+          tr.appendChild(tdLabel);
+          tr.appendChild(tdValue);
+          tbody.appendChild(tr);
+        }
+
+        log('JWT claims decoded and displayed', 'ok');
+        log('sub: ' + claims.sub, 'ok');
+        if (claims.scope) {
+          log('scope: ' + claims.scope, 'ok');
+        }
+      } catch (err) {
+        log('Failed to decode JWT: ' + err.message, 'err');
+      }
+    }
+
+    // =========================================================================
+    // Error display
+    // =========================================================================
+    function showError(message) {
+      loginCard.classList.add('hidden');
+      resultCard.classList.add('hidden');
+      errorCard.classList.remove('hidden');
+
+      const msgEl = $('error-msg');
+      msgEl.textContent = message;
+      msgEl.style.display = 'block';
+    }
+
+    function showLoginError(message) {
+      const statusEl = $('login-status');
+      statusEl.className = 'status-msg error';
+      statusEl.textContent = message;
+    }
+
+    // =========================================================================
+    // Reset
+    // =========================================================================
+    function resetState() {
+      sessionStorage.removeItem('pkce_code_verifier');
+      sessionStorage.removeItem('oauth_state');
+
+      // Clear URL params
+      window.history.replaceState({}, document.title, window.location.pathname);
+
+      loginCard.classList.remove('hidden');
+      resultCard.classList.add('hidden');
+      errorCard.classList.add('hidden');
+
+      setStep(0);
+      log('Session cleared', 'ok');
+    }
+
+    // =========================================================================
+    // Event listeners
+    // =========================================================================
+    btnNoScope.addEventListener('click', () => startLogin(''));
+    btnValidator.addEventListener('click', () => startLogin('subnet:1:validator'));
+    btnHolder.addEventListener('click', () => startLogin('subnet:1:holder'));
+    btnLogout.addEventListener('click', resetState);
+    btnRetry.addEventListener('click', resetState);
+
+    // =========================================================================
+    // On page load: check for callback parameters
+    // =========================================================================
+    (function init() {
+      const params = new URLSearchParams(window.location.search);
+
+      if (params.has('error')) {
+        // Authorization server returned an error
+        const error = params.get('error');
+        const description = params.get('error_description') || error;
+        log('Authorization error: ' + description, 'err');
+        showError('Authorization denied: ' + description);
+        // Clean URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+        return;
+      }
+
+      if (params.has('code')) {
+        // We're in the callback -- hide login card and exchange code
+        loginCard.classList.add('hidden');
+        const code = params.get('code');
+        const state = params.get('state');
+
+        // Clean URL immediately so code isn't visible / accidentally reused
+        window.history.replaceState({}, document.title, window.location.pathname);
+
+        log('Callback detected with authorization code', 'ok');
+        handleCallback(code, state);
+        return;
+      }
+
+      // Default: show login
+      setStep(0);
+      log('Ready. Choose an authentication flow to begin.');
+    })();
+  </script>
+</body>
+</html>

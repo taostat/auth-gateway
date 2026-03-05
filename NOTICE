@@ -1,0 +1,22 @@
+Taostats Auth Gateway
+Copyright 2024-2026 Taostats
+
+This product includes software developed by Taostats
+(https://taostats.io).
+
+Licensed under the Apache License, Version 2.0.
+
+Branding Requirement:
+Deployments not operated by or on behalf of Taostats must remove all
+Taostats branding (name, logo, favicon, and Open Graph images) from
+user-facing authentication pages. Retaining Taostats branding implies
+that Taostats operates or endorses the service, which misleads users
+about the trust relationship.
+
+This software uses the following open-source libraries:
+
+- Fastify (MIT License) - https://fastify.dev
+- Polkadot.js (Apache-2.0 License) - https://polkadot.js.org
+- Zod (MIT License) - https://zod.dev
+- PostgreSQL client (MIT License) - https://node-postgres.com
+- jsonwebtoken (MIT License) - https://github.com/auth0/node-jsonwebtoken

@@ -1,0 +1,37 @@
+name: Build and Push image
+description: Build and push a Docker image to Taostats Quay.io
+
+inputs:
+  image-name:
+    description: The base name of the image to build and push
+    required: true
+  version:
+    description: The version (typically commit SHA) of the image to build and push
+    required: true
+  registry-url:
+    description: The URL of the registry to push the image to
+    required: false
+    default: quay.io/taostats
+  registry-username:
+    description: The username of the registry to push the image to
+    required: true
+  registry-password:
+    description: The password of the registry to push the image to
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Log in to Quay.io
+      uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+      with:
+        registry: quay.io
+        username: ${{ inputs.registry-username }}
+        password: ${{ inputs.registry-password }}
+
+    - name: Build and push Docker image
+      shell: bash
+      run: |
+        docker build -t ${{ inputs.image-name }}:${{ inputs.version }} .
+        docker tag ${{ inputs.image-name }}:${{ inputs.version }} ${{ inputs.registry-url }}/${{ inputs.image-name }}:${{ inputs.version }}
+        docker push ${{ inputs.registry-url }}/${{ inputs.image-name }}:${{ inputs.version }}

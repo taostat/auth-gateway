@@ -1,0 +1,11 @@
+{
+  "name": "cli-device-code-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "npx tsx device-auth.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0"
+  }
+}

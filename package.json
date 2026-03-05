@@ -1,0 +1,59 @@
+{
+  "name": "taostats-auth-gateway",
+  "version": "2.5.5",
+  "description": "OAuth 2.0 authentication gateway — Bittensor and Ethereum wallet verification, RS256 JWTs, and on-chain role-based access control",
+  "license": "Apache-2.0",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node .esbuild.mjs",
+    "dev": "nodemon --watch src --ext ts --exec 'tsx src/index.ts'",
+    "start": "node dist/index.js",
+    "test": "jest --forceExit --detectOpenHandles",
+    "lint": "oxlint src/ -c .oxlintrc.json",
+    "format:check": "prettier --check 'src/**/*.ts' 'scripts/**/*.ts'",
+    "format": "prettier --write 'src/**/*.ts' 'scripts/**/*.ts'",
+    "typecheck": "tsc --noEmit",
+    "generate-keys": "mkdir -p keys && openssl genrsa -out keys/private.pem 2048 && openssl rsa -in keys/private.pem -pubout -out keys/public.pem",
+    "auth": "tsx scripts/cli-auth.ts",
+    "demo": "DEMO_MODE=true ADMIN_API_KEY=demo-admin-key PUBLIC_URL=http://localhost:3000 VERIFICATION_URI=http://localhost:3000/v1/device/verify docker compose up --build",
+    "setup-examples": "tsx examples/setup-demo-clients.ts",
+    "migrate": "tsx -e \"import './src/db/migrate'; import { runMigrations } from './src/db/migrate'; runMigrations().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); })\""
+  },
+  "dependencies": {
+    "@fastify/cors": "11.2.0",
+    "@fastify/formbody": "8.0.2",
+    "@fastify/rate-limit": "10.3.0",
+    "@fastify/swagger": "9.7.0",
+    "@fastify/swagger-ui": "5.2.5",
+    "@polkadot/api": "16.5.4",
+    "@polkadot/extension-dapp": "0.62.6",
+    "@polkadot/keyring": "14.0.1",
+    "@polkadot/util": "14.0.1",
+    "@polkadot/util-crypto": "14.0.1",
+    "dotenv": "17.3.1",
+    "fastify": "^5.8.4",
+    "fastify-type-provider-zod": "6.1.0",
+    "jsonwebtoken": "9.0.3",
+    "pg": "8.20.0",
+    "viem": "^2.47.10",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/jest": "30.0.0",
+    "@types/jsonwebtoken": "9.0.10",
+    "@types/node": "25.3.4",
+    "@types/pg": "8.18.0",
+    "esbuild": "0.27.3",
+    "jest": "30.2.0",
+    "nodemon": "3.1.14",
+    "oxlint": "1.47.0",
+    "prettier": "3.8.1",
+    "ts-jest": "29.4.6",
+    "ts-node": "10.9.2",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3"
+  }
+}
