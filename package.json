@@ -29,7 +29,7 @@
     "@polkadot/util": "13.5.9",
     "@polkadot/util-crypto": "13.5.9",
     "dotenv": "16.6.1",
-    "fastify": "5.7.4",
+    "fastify": "5.8.1",
     "fastify-type-provider-zod": "4.0.2",
     "jsonwebtoken": "9.0.3",
     "pg": "8.18.0",
