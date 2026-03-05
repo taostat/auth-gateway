@@ -20,14 +20,14 @@ export interface JwtClaims {
   scopes: string[];
   exp: number;
   iat: number;
-  jti?: string;
-  type?: 'access' | 'refresh' | 'auth_code';
-  client_id?: string;
-  redirect_uri?: string;
-  code_challenge?: string;
-  epoch?: number;
-  hotkey?: string | null;
-  coldkey?: string | null;
+  jti?: string | undefined;
+  type?: 'access' | 'refresh' | 'auth_code' | undefined;
+  client_id?: string | undefined;
+  redirect_uri?: string | undefined;
+  code_challenge?: string | undefined;
+  epoch?: number | undefined;
+  hotkey?: string | null | undefined;
+  coldkey?: string | null | undefined;
 }
 
 export interface DeviceCodeEntry {

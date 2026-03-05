@@ -13,6 +13,6 @@ export const validatorHandler: ScopeHandler = {
 
     // Validator: registered with non-zero dividends
     if (uid >= dividends.length) return false;
-    return dividends[uid] > 0;
+    return (dividends[uid] ?? 0) > 0;
   },
 };

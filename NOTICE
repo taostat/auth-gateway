@@ -6,6 +6,13 @@ This product includes software developed by Taostats
 
 Licensed under the Apache License, Version 2.0.
 
+Branding Requirement:
+Deployments not operated by or on behalf of Taostats must remove all
+Taostats branding (name, logo, favicon, and Open Graph images) from
+user-facing authentication pages. Retaining Taostats branding implies
+that Taostats operates or endorses the service, which misleads users
+about the trust relationship.
+
 This software uses the following open-source libraries:
 
 - Fastify (MIT License) - https://fastify.dev

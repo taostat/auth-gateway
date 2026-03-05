@@ -139,7 +139,7 @@ async function main(): Promise<void> {
     keyGenerator: (request) => {
       // Per-client rate limiting when client_id is present
       const body = request.body as Record<string, unknown> | undefined;
-      const clientId = body?.client_id as string | undefined;
+      const clientId = body?.['client_id'] as string | undefined;
       if (clientId) {
         return `client:${clientId}`;
       }

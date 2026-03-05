@@ -64,10 +64,7 @@ export class MockChainBuilder {
 
   setAlphaBalance(coldkey: string, netuid: number, balance: bigint, hotkey?: string): this {
     this.state.alphaBalances.set(`${coldkey}:${netuid}`, balance);
-    // Store stake info for runtime API mock
-    const key = `${coldkey}:${netuid}`;
     if (!this.state.stakeEntries) this.state.stakeEntries = [];
-    // Remove existing entry for this coldkey+netuid
     this.state.stakeEntries = this.state.stakeEntries.filter(
       (e: any) => !(e.coldkey === coldkey && e.netuid === netuid),
     );

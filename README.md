@@ -1,6 +1,20 @@
-# Auth Gateway
+<p align="center">
+  <img src="src/static/logo-dark-bg.svg" alt="Taostats" width="400">
+</p>
 
-Centralized authentication gateway for Taostats — Substrate sr25519 wallet verification with RS256 JWT tokens and on-chain scope verification via the Bittensor Subtensor network.
+<h1 align="center">Auth Gateway</h1>
+
+<p align="center">
+  <a href="https://github.com/taostat/auth-gateway/actions/workflows/ci.yml"><img src="https://github.com/taostat/auth-gateway/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License"></a>
+  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg" alt="Node.js"></a>
+  <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-strict-blue.svg" alt="TypeScript"></a>
+</p>
+
+<p align="center">
+  OAuth 2.0-compliant authentication gateway for the Bittensor ecosystem.<br>
+  Authenticates wallets via Substrate sr25519 challenge-response, issues RS256 JWTs, and verifies on-chain roles (miner, validator, subnet owner, TAO holder) against live Subtensor state — so any app or service can gate access based on what a wallet actually does on the network.
+</p>
 
 ## Key Features
 

@@ -1,5 +1,5 @@
 import { signatureVerify } from '@polkadot/util-crypto';
-import { u8aToHex } from '@polkadot/util';
+
 import { InvalidSignatureError } from '../util/errors';
 
 export function verifySr25519Signature(

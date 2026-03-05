@@ -7,7 +7,7 @@ import { JwtClaims } from '../types';
 export function createAccessToken(
   address: string,
   scopes: string[],
-  opts?: { client_id?: string; expiresIn?: number; hotkey?: string | null; coldkey?: string | null },
+  opts?: { client_id?: string | undefined; expiresIn?: number | undefined; hotkey?: string | null | undefined; coldkey?: string | null | undefined },
 ): string {
   return jwt.sign(
     {
@@ -33,7 +33,7 @@ export function createAccessToken(
 export function createRefreshToken(
   address: string,
   scopes: string[],
-  opts?: { jti?: string; client_id?: string; epoch?: number; hotkey?: string | null; coldkey?: string | null },
+  opts?: { jti?: string | undefined; client_id?: string | undefined; epoch?: number | undefined; hotkey?: string | null | undefined; coldkey?: string | null | undefined },
 ): string {
   return jwt.sign(
     {
@@ -61,11 +61,11 @@ export function createAuthCode(
   address: string,
   scopes: string[],
   opts?: {
-    client_id?: string;
-    redirect_uri?: string;
-    code_challenge?: string;
-    hotkey?: string | null;
-    coldkey?: string | null;
+    client_id?: string | undefined;
+    redirect_uri?: string | undefined;
+    code_challenge?: string | undefined;
+    hotkey?: string | null | undefined;
+    coldkey?: string | null | undefined;
   },
 ): string {
   return jwt.sign(

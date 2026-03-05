@@ -6,7 +6,7 @@ import { holderHandler } from './holder';
 import { AuthError, InvalidScopeFormatError, ScopeError } from '../util/errors';
 import { SignerContext } from './signerContext';
 
-export { SignerContext, resolveSignerContext } from './signerContext';
+export { type SignerContext, resolveSignerContext } from './signerContext';
 
 const SCOPE_REGEX = /^subnet:(\d+):(miner|owner|validator|holder)$/;
 
@@ -22,7 +22,7 @@ export function parseScope(scope: string): { netuid: number; role: string } {
   if (!match) {
     throw new InvalidScopeFormatError(scope);
   }
-  return { netuid: parseInt(match[1], 10), role: match[2] };
+  return { netuid: parseInt(match[1]!, 10), role: match[2]! };
 }
 
 export function validateScopeFormat(scope: string): boolean {
@@ -51,8 +51,9 @@ const roleDescriptions: Record<string, string> = {
 export function describeScope(scope: string): string {
   const match = scope.match(SCOPE_REGEX);
   if (!match) return scope;
-  const netuid = match[1];
-  const role = roleDescriptions[match[2]] || match[2];
+  const netuid = match[1]!;
+  const roleKey = match[2]!;
+  const role = roleDescriptions[roleKey] || roleKey;
   return `${role} on Subnet ${netuid}`;
 }
 

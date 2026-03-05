@@ -31,6 +31,7 @@ jest.mock('../../subtensor/queries', () => {
 import { FastifyInstance } from 'fastify';
 import { buildTestApp } from '../helpers/app';
 import { getAliceAddress, signWithAlice } from '../helpers/sign';
+import { getDeviceCode, denyDeviceCode } from '../../db/deviceCodes';
 let app: FastifyInstance;
 
 beforeAll(async () => {
@@ -122,6 +123,58 @@ describe('Device Code Routes', () => {
         },
       });
       expect(res.statusCode).toBe(404);
+    });
+
+    test('returns expired_token when device code has expired', async () => {
+      const codeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/device/code',
+        payload: { client_id: TEST_CLIENT_ID },
+      });
+      const { device_code } = JSON.parse(codeRes.payload);
+
+      // Mutate the stored entry to expire it
+      const entry = await getDeviceCode(device_code);
+      entry!.expiresAt = new Date(Date.now() - 1000);
+
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          device_code,
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+        },
+      });
+      expect(tokenRes.statusCode).toBe(400);
+      const body = JSON.parse(tokenRes.payload);
+      expect(body.error).toBe('expired_token');
+    });
+
+    test('returns access_denied when device code is denied', async () => {
+      const codeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/device/code',
+        payload: { client_id: TEST_CLIENT_ID },
+      });
+      const { device_code, user_code } = JSON.parse(codeRes.payload);
+
+      await denyDeviceCode(user_code);
+
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          device_code,
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+        },
+      });
+      expect(tokenRes.statusCode).toBe(400);
+      const body = JSON.parse(tokenRes.payload);
+      expect(body.error).toBe('access_denied');
     });
   });
 

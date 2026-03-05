@@ -33,13 +33,14 @@ async function hashClientSecret(secret: string): Promise<string> {
 async function verifyScryptSecret(secret: string, encoded: string): Promise<boolean> {
   const parts = encoded.split('$');
   if (parts.length !== 6 || parts[0] !== 'scrypt') return false;
-  const [, N, r, p, saltB64, hashB64] = parts;
+  const [, nStr, rStr, pStr, saltB64, hashB64] = parts;
+  if (!nStr || !rStr || !pStr || !saltB64 || !hashB64) return false;
   const salt = Buffer.from(saltB64, 'base64url');
   const expected = Buffer.from(hashB64, 'base64url');
   const derived = await scryptAsync(secret, salt, expected.length, {
-    N: parseInt(N, 10),
-    r: parseInt(r, 10),
-    p: parseInt(p, 10),
+    N: parseInt(nStr, 10),
+    r: parseInt(rStr, 10),
+    p: parseInt(pStr, 10),
   });
   if (derived.length !== expected.length) return false;
   return timingSafeEqual(derived, expected);
@@ -92,12 +93,12 @@ export async function getClientById(clientId: string): Promise<OAuthClient | nul
 export async function createClient(opts: {
   client_name: string;
   client_type: 'confidential' | 'public';
-  redirect_uris?: string[];
-  grant_types?: string[];
-  allowed_scopes?: string[];
-  allowed_origins?: string[];
-  rate_limit?: number;
-}): Promise<{ client: OAuthClient; client_secret?: string }> {
+  redirect_uris?: string[] | undefined;
+  grant_types?: string[] | undefined;
+  allowed_scopes?: string[] | undefined;
+  allowed_origins?: string[] | undefined;
+  rate_limit?: number | undefined;
+}): Promise<{ client: OAuthClient; client_secret?: string | undefined }> {
   const pool = getPool();
 
   let secretHash: string | null = null;

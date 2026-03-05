@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { createChallenge, consumeChallenge } from '../../crypto/challenge';
+import { consumeChallenge } from '../../crypto/challenge';
 import { verifySignatureOrThrow } from '../../crypto/signature';
 import { createAuthCode } from '../../crypto/jwt';
 import { validateCodeChallenge } from '../../crypto/pkce';
@@ -106,7 +106,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
     <p class="info"><strong>${escapeHtml(client.client_name)}</strong> wants to verify your wallet identity. You will sign a message to prove ownership — no transaction will be made.</p>
     ${scopes.length > 0 ? `<div class="scopes-box">
       <h3>Access requested</h3>
-      ${scopes.map((s, i) => `<div class="scope-item"><span>${escapeHtml(scopeDescriptions[i])}</span> <span class="raw">${escapeHtml(s)}</span></div>`).join('')}
+      ${scopes.map((s, i) => `<div class="scope-item"><span>${escapeHtml(scopeDescriptions[i] ?? s)}</span> <span class="raw">${escapeHtml(s)}</span></div>`).join('')}
     </div>` : ''}
     <div id="browser-flow">
       <div class="account-picker" id="account-picker" style="display:none;">

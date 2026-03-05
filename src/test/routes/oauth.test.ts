@@ -941,6 +941,72 @@ describe('OAuth Routes', () => {
     });
   });
 
+  describe('concurrent refresh token rotation', () => {
+    test('rejects second concurrent use of the same refresh token', async () => {
+      const address = await getAliceAddress();
+
+      // Get initial tokens via full OAuth flow
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/challenge',
+        payload: { address },
+      });
+      const { nonce } = JSON.parse(challengeRes.payload);
+      const signature = await signWithAlice(nonce);
+
+      const callbackRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/callback',
+        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+      });
+      const { code } = JSON.parse(callbackRes.payload);
+
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      expect(tokenRes.statusCode).toBe(200);
+      const { refresh_token } = JSON.parse(tokenRes.payload);
+
+      // Send two refresh requests simultaneously with the same token
+      const refreshPayload = {
+        grant_type: 'refresh_token',
+        refresh_token,
+        client_id: TEST_CLIENT_ID,
+        client_secret: TEST_CLIENT_SECRET,
+      };
+
+      const [res1, res2] = await Promise.all([
+        app.inject({ method: 'POST', url: '/v1/oauth/refresh', payload: refreshPayload }),
+        app.inject({ method: 'POST', url: '/v1/oauth/refresh', payload: refreshPayload }),
+      ]);
+
+      const statuses = [res1.statusCode, res2.statusCode].sort();
+      // Exactly one should succeed (200) and one should fail (401)
+      expect(statuses).toEqual([200, 401]);
+
+      // The failing response should indicate revocation
+      const failedRes = res1.statusCode === 401 ? res1 : res2;
+      const failedBody = JSON.parse(failedRes.payload);
+      expect(failedBody.error).toBe('invalid_grant');
+      expect(failedBody.error_description).toMatch(/revoked/i);
+
+      // The successful response should have new tokens
+      const successRes = res1.statusCode === 200 ? res1 : res2;
+      const successBody = JSON.parse(successRes.payload);
+      expect(successBody.access_token).toBeDefined();
+      expect(successBody.refresh_token).toBeDefined();
+      expect(successBody.refresh_token).not.toBe(refresh_token);
+    });
+  });
+
   describe('allowed_scopes enforcement', () => {
     test('rejects scopes not in client allowed_scopes on authorize', async () => {
       addTestClient(createTestClient({

@@ -62,7 +62,7 @@ All three must pass before submitting a PR:
 ```sh
 npm run typecheck    # tsc --noEmit
 npm run lint         # eslint
-npm test             # jest (152 tests)
+npm test             # jest
 ```
 
 ## Tests

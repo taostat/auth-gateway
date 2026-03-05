@@ -1,4 +1,4 @@
-import { OAuthClient, RefreshTokenRecord, AuthChallenge } from '../../types';
+import { OAuthClient, RefreshTokenRecord } from '../../types';
 
 // In-memory mock stores
 const clients = new Map<string, OAuthClient>();

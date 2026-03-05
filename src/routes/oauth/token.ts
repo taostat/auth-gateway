@@ -189,9 +189,8 @@ async function handleRefreshToken(
   const { accessExpiry, epoch: currentEpoch } = await epochPromise;
 
   const newRefreshJti = uuidv4();
-  let dbToken;
   try {
-    dbToken = await rotateRefreshToken(claims.jti, {
+    await rotateRefreshToken(claims.jti, {
       jti: newRefreshJti,
       client_id: client.client_id,
       address,

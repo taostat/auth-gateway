@@ -67,8 +67,9 @@ export const MIN_ACCESS_TOKEN_EXPIRY = 60;
 function firstNetuid(scopes: string[]): number | null {
   for (const scope of scopes) {
     const parts = scope.split(':');
-    if (parts.length >= 2) {
-      const netuid = parseInt(parts[1], 10);
+    const netuidStr = parts[1];
+    if (parts.length >= 2 && netuidStr) {
+      const netuid = parseInt(netuidStr, 10);
       if (!isNaN(netuid)) return netuid;
     }
   }

@@ -1,7 +1,7 @@
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import jwt from 'jsonwebtoken';
 
-import { loadKeys, getPublicKey, getPrivateKey } from '../../crypto/keys';
+import { loadKeys, getPrivateKey } from '../../crypto/keys';
 import { createAccessToken, createRefreshToken, createAuthCode, verifyToken } from '../../crypto/jwt';
 
 beforeAll(async () => {

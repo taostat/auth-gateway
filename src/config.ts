@@ -1,12 +1,6 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-function requiredEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`Missing required environment variable: ${name}`);
-  return value;
-}
-
 function optionalEnv(name: string, defaultValue: string): string {
   const value = process.env[name];
   return value !== undefined && value !== '' ? value : defaultValue;
@@ -42,10 +36,10 @@ export const config = {
   isTestnet,
 
   // RSA Keys - support both file path and base64
-  rsaPrivateKeyPath: process.env.RSA_PRIVATE_KEY_PATH || undefined,
-  rsaPublicKeyPath: process.env.RSA_PUBLIC_KEY_PATH || undefined,
-  rsaPrivateKeyBase64: process.env.RSA_PRIVATE_KEY_BASE64 || undefined,
-  rsaPublicKeyBase64: process.env.RSA_PUBLIC_KEY_BASE64 || undefined,
+  rsaPrivateKeyPath: process.env['RSA_PRIVATE_KEY_PATH'] || undefined,
+  rsaPublicKeyPath: process.env['RSA_PUBLIC_KEY_PATH'] || undefined,
+  rsaPrivateKeyBase64: process.env['RSA_PRIVATE_KEY_BASE64'] || undefined,
+  rsaPublicKeyBase64: process.env['RSA_PUBLIC_KEY_BASE64'] || undefined,
 
   // JWT
   jwtIssuer: optionalEnv('JWT_ISSUER', 'https://auth.taostats.io'),
@@ -78,7 +72,7 @@ export const config = {
   databaseUrl: optionalEnv('DATABASE_URL', 'postgresql://localhost:5432/auth_gateway'),
 
   // Admin API
-  adminApiKey: process.env.ADMIN_API_KEY || undefined,
+  adminApiKey: process.env['ADMIN_API_KEY'] || undefined,
 
   // Migrations
   runMigrations: optionalEnv('RUN_MIGRATIONS', 'true') === 'true',
@@ -105,7 +99,7 @@ if (config.nodeEnv === 'production' && !config.adminApiKey) {
   throw new Error('ADMIN_API_KEY must be set in production');
 }
 
-if (config.nodeEnv === 'production' && !process.env.DATABASE_URL) {
+if (config.nodeEnv === 'production' && !process.env['DATABASE_URL']) {
   throw new Error('DATABASE_URL must be set in production');
 }
 
