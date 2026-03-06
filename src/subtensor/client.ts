@@ -12,7 +12,8 @@ export async function getSubtensorApi(): Promise<ApiPromise> {
   connectionPromise = (async () => {
     try {
       const provider = new WsProvider(config.subtensorWsUrl);
-      api = await ApiPromise.create({ provider, noInitWarn: true });
+      // WsProvider.ttl type mismatch in @polkadot/api v16
+      api = await ApiPromise.create({ provider: provider as any, noInitWarn: true });
 
       api.on('disconnected', () => {
         console.warn('Subtensor WebSocket disconnected, will reconnect on next request');
