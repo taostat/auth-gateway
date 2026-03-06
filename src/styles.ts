@@ -27,7 +27,7 @@ export const sharedCss = `
   --text: #fafafa;
   --text-secondary: #a5a5a5;
   --text-muted: #5a5a5a;
-  --error: #fd4848;
+  --error: #f5a623;
   --success: #6CFC69;
   --font: 'Everett', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'Fira Code', 'SF Mono', monospace;
@@ -108,7 +108,7 @@ button:disabled { background: #262626 !important; color: #5a5a5a !important; cur
 .status { border-radius: var(--radius-sm); font-size: 0.9rem; line-height: 1.5; }
 .status:not(:empty) { padding: 14px 16px; margin: 16px 0 0 0; }
 .status.loading { background: var(--surface); color: var(--text-secondary); }
-.status.error { display: block; background: rgba(255,82,82,0.1); border: 1px solid rgba(255,82,82,0.3); color: #ff6b6b; font-weight: 500; }
+.status.error { display: block; background: rgba(245,166,35,0.1); border: 1px solid rgba(245,166,35,0.3); color: var(--error); font-weight: 500; word-break: break-all; }
 .status.success { display: block; background: rgba(105,240,174,0.1); border: 1px solid rgba(105,240,174,0.3); color: var(--success); font-weight: 500; }
 
 /* Scopes */
@@ -160,11 +160,12 @@ footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--bord
 
 /* Error page */
 .error-box {
-  background: rgba(255,82,82,0.1);
-  border: 1px solid rgba(255,82,82,0.25);
+  background: rgba(245,166,35,0.1);
+  border: 1px solid rgba(245,166,35,0.25);
   border-radius: var(--radius);
   padding: 16px;
   color: var(--error);
+  word-break: break-all;
 }
 
 /* Narrow pages (authorize, device verify, error) */
