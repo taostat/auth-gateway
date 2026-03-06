@@ -120,15 +120,15 @@ button:disabled { background: #262626 !important; color: #5a5a5a !important; cur
 .scopes-box h3 { margin: 0; padding: 16px 0 4px 0; font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
 .scope-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 4px;
   padding: 14px 0;
   border-bottom: 1px solid var(--border);
   font-size: 0.95rem;
   color: var(--text);
 }
 .scope-item:last-child { border-bottom: none; }
-.scope-item .raw { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); }
+.scope-item .raw { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); word-break: break-all; }
 .no-scopes { color: var(--text-secondary); font-style: italic; }
 
 /* Forms */
