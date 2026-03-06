@@ -25,7 +25,7 @@ describe('Delegate Scope Handler', () => {
 
   test('returns true when staked to hotkey', async () => {
     mockTaostatsGet.mockResolvedValue({
-      data: [{ balance_as_tao: '150.5' }],
+      data: [{ balance_as_tao: '150500000000' }],
       pagination: { total_items: 1 },
     });
     const result = await delegateHandler.verify(
@@ -57,8 +57,8 @@ describe('Delegate Scope Handler', () => {
   test('aggregates across subnets for minimum', async () => {
     mockTaostatsGet.mockResolvedValue({
       data: [
-        { balance_as_tao: '80.0' },
-        { balance_as_tao: '120.0' },
+        { balance_as_tao: '80000000000' },
+        { balance_as_tao: '120000000000' },
       ],
       pagination: { total_items: 2 },
     });
@@ -71,7 +71,7 @@ describe('Delegate Scope Handler', () => {
 
   test('fails when below minimum across subnets', async () => {
     mockTaostatsGet.mockResolvedValue({
-      data: [{ balance_as_tao: '50.0' }],
+      data: [{ balance_as_tao: '50000000000' }],
       pagination: { total_items: 1 },
     });
     const result = await delegateHandler.verify(

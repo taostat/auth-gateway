@@ -1,5 +1,5 @@
 import { ScopeHandler } from './types';
-import { taostatsGet, taoStringToRao } from '../taostats/client';
+import { taostatsGet } from '../taostats/client';
 
 interface AggregatedStakeEntry {
   total_balance_as_tao: string;
@@ -28,7 +28,7 @@ export const stakerHandler: ScopeHandler = {
 
     if (result.data.length === 0) return false;
 
-    const totalRao = taoStringToRao(result.data[0]!.total_balance_as_tao);
+    const totalRao = BigInt(result.data[0]!.total_balance_as_tao);
     return totalRao >= minTao;
   },
 };
