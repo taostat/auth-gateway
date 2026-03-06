@@ -52,10 +52,25 @@ const clientCache = new BoundedMap<string, { client: OAuthClient | null; cachedA
   (entry) => Date.now() - entry.cachedAt > CACHE_TTL_MS,
 );
 
-function fromRow(row: any): OAuthClient {
+interface OAuthClientRow {
+  client_id: string;
+  client_secret_hash: string | null;
+  client_name: string;
+  client_type: 'confidential' | 'public';
+  redirect_uris: string[] | null;
+  grant_types: string[] | null;
+  allowed_scopes: string[] | null;
+  allowed_origins: string[] | null;
+  rate_limit: number;
+  active: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
+function fromRow(row: OAuthClientRow): OAuthClient {
   return {
     client_id: row.client_id,
-    client_secret_hash: row.client_secret_hash || undefined,
+    ...(row.client_secret_hash ? { client_secret_hash: row.client_secret_hash } : {}),
     client_name: row.client_name,
     client_type: row.client_type,
     redirect_uris: row.redirect_uris || [],
@@ -77,12 +92,13 @@ export async function getClientById(clientId: string): Promise<OAuthClient | nul
   }
 
   const pool = getPool();
-  const { rows } = await pool.query(
+  const { rows } = await pool.query<OAuthClientRow>(
     'SELECT * FROM oauth_clients WHERE client_id = $1 AND active = TRUE',
     [clientId],
   );
 
-  const client = rows.length > 0 ? fromRow(rows[0]) : null;
+  const row = rows[0];
+  const client = row ? fromRow(row) : null;
   // Only cache positive results — don't cache null lookups
   if (client) {
     clientCache.set(clientId, { client, cachedAt: Date.now() });
@@ -109,7 +125,7 @@ export async function createClient(opts: {
     secretHash = await hashClientSecret(plainSecret);
   }
 
-  const { rows } = await pool.query(
+  const { rows } = await pool.query<OAuthClientRow>(
     `INSERT INTO oauth_clients (client_secret_hash, client_name, client_type, redirect_uris, grant_types, allowed_scopes, allowed_origins, rate_limit)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
@@ -125,7 +141,11 @@ export async function createClient(opts: {
     ],
   );
 
-  const client = fromRow(rows[0]);
+  const row = rows[0];
+  if (!row) {
+    throw new Error('Failed to create OAuth client');
+  }
+  const client = fromRow(row);
   // Invalidate cache
   clientCache.delete(client.client_id);
 
@@ -134,7 +154,7 @@ export async function createClient(opts: {
 
 export async function listClients(): Promise<OAuthClient[]> {
   const pool = getPool();
-  const { rows } = await pool.query(
+  const { rows } = await pool.query<OAuthClientRow>(
     'SELECT client_id, client_name, client_type, redirect_uris, grant_types, allowed_scopes, allowed_origins, rate_limit, active, created_at, updated_at FROM oauth_clients ORDER BY created_at DESC',
   );
   return rows.map(fromRow);
@@ -159,6 +179,9 @@ export async function verifyClientSecret(client: OAuthClient, secret: string): P
 
 /** Get all allowed origins from all active clients (for CORS). Cached for 60s. */
 let originsCache: { origins: Set<string>; cachedAt: number } | null = null;
+interface AllowedOriginsRow {
+  allowed_origins: string[] | null;
+}
 
 export async function getAllowedOrigins(): Promise<Set<string>> {
   if (originsCache && Date.now() - originsCache.cachedAt < CACHE_TTL_MS) {
@@ -166,7 +189,7 @@ export async function getAllowedOrigins(): Promise<Set<string>> {
   }
 
   const pool = getPool();
-  const { rows } = await pool.query(
+  const { rows } = await pool.query<AllowedOriginsRow>(
     'SELECT allowed_origins FROM oauth_clients WHERE active = TRUE',
   );
 

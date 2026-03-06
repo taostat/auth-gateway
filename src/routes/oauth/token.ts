@@ -31,6 +31,10 @@ import { TokenResponseSchema } from '../../schemas/responses';
 type TokenBody = z.infer<typeof TokenBodySchema>;
 type TokenClient = { client_id: string; rate_limit: number; grant_types: string[] };
 
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : '';
+}
+
 function buildTokenResponse(
   address: string,
   accessToken: string,
@@ -231,10 +235,11 @@ async function handleRefreshToken(
       epoch_at_issuance: currentEpoch,
       expires_at: new Date(Date.now() + config.jwtRefreshTokenExpiry * 1000),
     });
-  } catch (e: any) {
-    if (e.message === RotateError.NOT_FOUND) throw new AuthError('Refresh token not found', 401, OAuthErrorCode.INVALID_GRANT);
-    if (e.message === RotateError.REVOKED) throw new AuthError('Refresh token has been revoked', 401, OAuthErrorCode.INVALID_GRANT);
-    if (e.message === RotateError.EXPIRED) throw new AuthError('Refresh token expired', 401, OAuthErrorCode.INVALID_GRANT);
+  } catch (e: unknown) {
+    const message = getErrorMessage(e);
+    if (message === RotateError.NOT_FOUND) throw new AuthError('Refresh token not found', 401, OAuthErrorCode.INVALID_GRANT);
+    if (message === RotateError.REVOKED) throw new AuthError('Refresh token has been revoked', 401, OAuthErrorCode.INVALID_GRANT);
+    if (message === RotateError.EXPIRED) throw new AuthError('Refresh token expired', 401, OAuthErrorCode.INVALID_GRANT);
     throw e;
   }
 
@@ -363,7 +368,7 @@ export async function tokenRoutes(fastify: FastifyInstance): Promise<void> {
     Body: TokenBody;
   }>, reply: FastifyReply) => {
     const { grant_type } = request.body;
-    const { client, pkceRequired } = await authenticateClient(request as any);
+    const { client, pkceRequired } = await authenticateClient(request);
     checkClientRateLimit(client.client_id, client.rate_limit);
 
     const allowedGrant = grant_type === 'urn:ietf:params:oauth:grant-type:device_code'
@@ -402,7 +407,7 @@ export async function tokenRoutes(fastify: FastifyInstance): Promise<void> {
       throw new AuthError('Unsupported grant_type. Use "refresh_token".', 400, OAuthErrorCode.UNSUPPORTED_GRANT_TYPE);
     }
 
-    const { client } = await authenticateClient(request as any);
+    const { client } = await authenticateClient(request);
     checkClientRateLimit(client.client_id, client.rate_limit);
 
     return handleRefreshToken(request, reply, client);

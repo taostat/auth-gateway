@@ -44,6 +44,13 @@ function decodeJwtPayload(token: string): Record<string, unknown> {
   return JSON.parse(json);
 }
 
+type DevicePollResponse = {
+  access_token?: string;
+  refresh_token?: string;
+  error?: string;
+  error_description?: string;
+};
+
 async function main() {
   console.log(bold("\n--- Device Authorization Flow ---\n"));
   console.log(dim(`  Gateway : ${BASE_URL}`));
@@ -94,16 +101,20 @@ async function main() {
       }),
     });
 
-    if (tokenRes.status === 428) {
+    const body = (await tokenRes.json()) as DevicePollResponse;
+    const oauthError = body.error;
+
+    if (
+      (tokenRes.status === 400 || tokenRes.status === 428)
+      && (oauthError === "authorization_pending" || oauthError === "slow_down")
+    ) {
       process.stdout.write(".");
       continue;
     }
 
-    const body = (await tokenRes.json()) as Record<string, unknown>;
-
     if (!tokenRes.ok) {
       console.log();
-      console.error(red(`\n  Error: ${(body.error as string) ?? tokenRes.status}`));
+      console.error(red(`\n  Error: ${body.error ?? tokenRes.status}`));
       if (body.error_description) console.error(red(`  ${body.error_description}`));
       process.exit(1);
     }

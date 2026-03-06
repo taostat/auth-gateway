@@ -29,7 +29,7 @@ export function createErrorHandler(opts: ErrorHandlerOptions) {
       });
     }
 
-    if ((error as any).statusCode === 429) {
+    if (error.statusCode === 429) {
       return reply.code(429).send({
         statusCode: 429,
         error: 'Too Many Requests',
@@ -45,8 +45,9 @@ export function createErrorHandler(opts: ErrorHandlerOptions) {
       ? 'An unexpected error occurred'
       : error.message;
 
-    return reply.code((error as any).statusCode || 500).send({
-      statusCode: (error as any).statusCode || 500,
+    const statusCode = error.statusCode || 500;
+    return reply.code(statusCode).send({
+      statusCode,
       error: 'Internal Server Error',
       message,
     });

@@ -14,7 +14,21 @@ export interface DbDeviceCode {
   lastPolledAt: Date | null;
 }
 
-function rowToDeviceCode(row: any): DbDeviceCode {
+interface DeviceCodeRow {
+  device_code: string;
+  user_code: string;
+  client_id: string;
+  scopes: string[] | null;
+  approved: boolean;
+  denied: boolean;
+  address: string | null;
+  approved_at: Date | null;
+  created_at: Date;
+  expires_at: Date;
+  last_polled_at: Date | null;
+}
+
+function rowToDeviceCode(row: DeviceCodeRow): DbDeviceCode {
   return {
     deviceCode: row.device_code,
     userCode: row.user_code,
@@ -46,19 +60,21 @@ export async function createDeviceCode(
 
 export async function getDeviceCode(deviceCode: string): Promise<DbDeviceCode | null> {
   const pool = getPool();
-  const { rows } = await pool.query('SELECT * FROM device_codes WHERE device_code = $1', [deviceCode]);
-  if (rows.length === 0) return null;
-  return rowToDeviceCode(rows[0]);
+  const { rows } = await pool.query<DeviceCodeRow>('SELECT * FROM device_codes WHERE device_code = $1', [deviceCode]);
+  const row = rows[0];
+  if (!row) return null;
+  return rowToDeviceCode(row);
 }
 
 export async function getDeviceCodeByUserCode(userCode: string): Promise<DbDeviceCode | null> {
   const pool = getPool();
-  const { rows } = await pool.query(
+  const { rows } = await pool.query<DeviceCodeRow>(
     'SELECT * FROM device_codes WHERE user_code = $1 AND approved = FALSE AND denied = FALSE AND expires_at > now()',
     [userCode],
   );
-  if (rows.length === 0) return null;
-  return rowToDeviceCode(rows[0]);
+  const row = rows[0];
+  if (!row) return null;
+  return rowToDeviceCode(row);
 }
 
 export async function approveDeviceCode(userCode: string, address: string): Promise<boolean> {

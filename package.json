@@ -1,9 +1,12 @@
 {
   "name": "taostats-auth-gateway",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "OAuth 2.0 authentication gateway for Bittensor — wallet verification, RS256 JWTs, and on-chain role-based access control",
   "license": "Apache-2.0",
   "main": "dist/index.js",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "node .esbuild.mjs",
     "dev": "nodemon --watch src --ext ts --exec 'tsx src/index.ts'",

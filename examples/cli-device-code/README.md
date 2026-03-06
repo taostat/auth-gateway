@@ -65,7 +65,7 @@ A terminal-based CLI application that authenticates using the OAuth2 Device Auth
 
 ## Key code points
 
-- **Polling loop** -- The CLI polls `POST /v1/oauth/token` at the interval specified by the gateway. A `428` status means "slow down" (the client is polling too fast). A `200` means the user approved and tokens are ready.
+- **Polling loop** -- The CLI polls `POST /v1/oauth/token` at the interval specified by the gateway. During polling it receives OAuth errors `authorization_pending` / `slow_down` (HTTP `400`) until the user approves, then receives `200` with tokens.
 - **Error handling** -- If the user denies authorization, the gateway returns `403`. If the device code expires before approval, it returns `401`.
 - **No browser dependency** -- The CLI itself has no browser dependency. It opens the system browser for the user to approve, but the token exchange happens entirely via HTTP from the terminal.
 - **Grant type URN** -- The device code grant uses the standard URN `urn:ietf:params:oauth:grant-type:device_code` as the `grant_type` value.
