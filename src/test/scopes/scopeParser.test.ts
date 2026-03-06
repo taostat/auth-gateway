@@ -58,6 +58,27 @@ describe('parseScope', () => {
     expect(p.minAmount).toBe(1000n * RAO);
   });
 
+  test('tao:holder:0.01 (fractional)', () => {
+    const p = parseScope('tao:holder:0.01');
+    expect(p.type).toBe('tao');
+    expect(p.minAmount).toBe(10_000_000n);
+  });
+
+  test('subnet:1:holder:0.5 (fractional alpha)', () => {
+    const p = parseScope('subnet:1:holder:0.5');
+    expect(p.minAmount).toBe(500_000_000n);
+  });
+
+  test('staker:0.001', () => {
+    const p = parseScope('staker:0.001');
+    expect(p.minAmount).toBe(1_000_000n);
+  });
+
+  test('delegate with fractional min', () => {
+    const p = parseScope(`delegate:${HOTKEY}:0.1`);
+    expect(p.minAmount).toBe(100_000_000n);
+  });
+
   test('invalid scope throws', () => {
     expect(() => parseScope('invalid')).toThrow('Invalid scope format');
     expect(() => parseScope('subnet:abc:miner')).toThrow();
@@ -77,7 +98,11 @@ describe('validateScopeFormat', () => {
     'tao:holder:50',
     `delegate:${HOTKEY}`,
     `delegate:${HOTKEY}:500`,
+    `delegate:${HOTKEY}:0.5`,
     'staker:1000',
+    'staker:0.01',
+    'tao:holder:0.001',
+    'subnet:1:holder:0.5',
   ];
 
   for (const scope of valid) {
@@ -116,6 +141,7 @@ describe('describeScope', () => {
   test('tao scopes', () => {
     expect(describeScope('tao:holder')).toBe('TAO Holder');
     expect(describeScope('tao:holder:50')).toBe('TAO Holder (min 50 TAO)');
+    expect(describeScope('tao:holder:0.01')).toBe('TAO Holder (min 0.01 TAO)');
   });
 
   test('delegate scopes', () => {

@@ -61,16 +61,18 @@ export interface StakeInfo {
 
 /**
  * Get all stake info for a coldkey via the Subtensor runtime API.
- * Returns an array of StakeInfo entries (one per hotkey+netuid combination).
+ * Uses the plural getStakeInfoForColdkeys (Vec<AccountId32>) which
+ * returns Vec<(AccountId32, Vec<StakeInfo>)>.
  */
 export async function getStakeInfoForColdkey(address: string): Promise<StakeInfo[]> {
   const api = await getSubtensorApi();
   const result: any = await withTimeout(
-    (api.call as any).stakeInfoRuntimeApi.getStakeInfoForColdkey(address),
-    `getStakeInfoForColdkey(${address})`,
+    (api.call as any).stakeInfoRuntimeApi.getStakeInfoForColdkeys([address]),
+    `getStakeInfoForColdkeys(${address})`,
   );
   const json = result.toJSON();
-  const entries = json as any[];
+  if (!Array.isArray(json) || json.length === 0) return [];
+  const [, entries] = json[0] as [string, any[]];
   if (!Array.isArray(entries)) return [];
   return entries.map((e: any) => ({
     hotkey: e.hotkey,
