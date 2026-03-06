@@ -11,18 +11,18 @@ export const holderHandler: ScopeHandler = {
     const minAmount = params.minAmount ?? BigInt(1);
     try {
       const stake = await getAlphaStakeOnSubnet(ctx.coldkey, params.netuid);
-      return stake >= minAmount;
+      if (stake >= minAmount) return true;
     } catch (err) {
-      console.error(
+      console.warn(
         `On-chain holder check failed for ${ctx.coldkey} on subnet ${params.netuid}:`,
         err,
       );
-      return await checkBalanceViaTaostatsApi(
-        ctx.coldkey,
-        params.netuid,
-        minAmount,
-      );
     }
+    return await checkBalanceViaTaostatsApi(
+      ctx.coldkey,
+      params.netuid,
+      minAmount,
+    );
   },
 };
 
