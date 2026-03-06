@@ -190,6 +190,7 @@ function demoPage(webClientId: string): string {
     const CLIENT_ID = ${serializeForInlineScript(webClientId)};
     const ISSUER = ${serializeForInlineScript(config.jwtIssuer)};
     const REDIRECT_URI = window.location.origin + '/';
+    const IS_MAINNET = ${!config.isTestnet};
 
     function showErr(err) { alert(err.message || err); }
 
@@ -214,8 +215,8 @@ function demoPage(webClientId: string): string {
         '<select class="scope-type" style="flex-shrink:0;" onchange="onScopeTypeChange(' + id + ')">' +
         '<option value="subnet"' + (type === 'subnet' ? ' selected' : '') + '>Subnet</option>' +
         '<option value="tao"' + (type === 'tao' ? ' selected' : '') + '>TAO Holder</option>' +
-        '<option value="delegate"' + (type === 'delegate' ? ' selected' : '') + '>Delegated to Validator</option>' +
-        '<option value="staker"' + (type === 'staker' ? ' selected' : '') + '>Staker</option>' +
+        (IS_MAINNET ? '<option value="delegate"' + (type === 'delegate' ? ' selected' : '') + '>Delegated to Validator</option>' : '') +
+        (IS_MAINNET ? '<option value="staker"' + (type === 'staker' ? ' selected' : '') + '>Staker</option>' : '') +
         '</select>' +
         '<span class="scope-params" id="scope-params-' + id + '" style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;"></span>' +
         '<button style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1rem;padding:2px 6px;line-height:1;flex-shrink:0;" onclick="removeScopeRow(' + id + ')">&times;</button>';
@@ -239,12 +240,12 @@ function demoPage(webClientId: string): string {
           '<option value="holder"' + (role === 'holder' ? ' selected' : '') + '>holder</option>' +
           '</select>' +
           '<span id="scope-min-' + id + '" style="display:' + (role === 'holder' ? 'contents' : 'none') + ';">' +
-          '<input type="number" min="0" value="' + esc(min) + '" placeholder="min alpha" style="width:80px;flex-shrink:0;" class="scope-min" data-row="' + id + '" oninput="updateScopePreview()">' +
+          '<input type="number" min="0" step="any" value="' + esc(min) + '" placeholder="min alpha" style="width:80px;flex-shrink:0;" class="scope-min" data-row="' + id + '" oninput="updateScopePreview()">' +
           '</span>';
       } else if (type === 'tao') {
         var min = (preset && preset.min) || '';
         el.innerHTML =
-          '<input type="number" min="0" value="' + esc(min) + '" placeholder="min TAO" style="width:80px;flex-shrink:0;" class="scope-tao-min" data-row="' + id + '" oninput="updateScopePreview()">';
+          '<input type="number" min="0" step="any" value="' + esc(min) + '" placeholder="min TAO" style="width:80px;flex-shrink:0;" class="scope-tao-min" data-row="' + id + '" oninput="updateScopePreview()">';
       } else if (type === 'delegate') {
         var hotkey = (preset && preset.hotkey) || TAOSTATS_HOTKEY;
         var min = (preset && preset.min) || '';
@@ -254,11 +255,11 @@ function demoPage(webClientId: string): string {
           '<option value="5G3wMP3g3d775hauwmAZioYFVZYnvw6eY46wkFy8hEWD5KP3"' + (hotkey === '5G3wMP3g3d775hauwmAZioYFVZYnvw6eY46wkFy8hEWD5KP3' ? ' selected' : '') + '>Opentensor Foundation</option>' +
           '<option value="5DXdHixxtCvoa6GHKs2Jgrdzc61882Ftx1zN2sYFQuwgL1S1"' + (hotkey === '5DXdHixxtCvoa6GHKs2Jgrdzc61882Ftx1zN2sYFQuwgL1S1' ? ' selected' : '') + '>Yuma (DCG)</option>' +
           '</select>' +
-          '<input type="number" min="0" value="' + esc(min) + '" placeholder="min TAO" style="width:80px;flex-shrink:0;" class="scope-delegate-min" data-row="' + id + '" oninput="updateScopePreview()">';
+          '<input type="number" min="0" step="any" value="' + esc(min) + '" placeholder="min TAO" style="width:80px;flex-shrink:0;" class="scope-delegate-min" data-row="' + id + '" oninput="updateScopePreview()">';
       } else if (type === 'staker') {
         var min = (preset && preset.min) || '100';
         el.innerHTML =
-          '<input type="number" min="1" value="' + esc(min) + '" placeholder="min TAO" style="width:90px;" class="scope-staker-min" data-row="' + id + '" oninput="updateScopePreview()">';
+          '<input type="number" min="0" step="any" value="' + esc(min) + '" placeholder="min TAO" style="width:90px;" class="scope-staker-min" data-row="' + id + '" oninput="updateScopePreview()">';
       }
     }
 

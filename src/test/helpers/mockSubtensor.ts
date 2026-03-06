@@ -149,9 +149,12 @@ export function createMockApi(state: MockChainState) {
     },
     call: {
       stakeInfoRuntimeApi: {
-        getStakeInfoForColdkey: jest.fn().mockImplementation((address: string) => {
-          const entries = (state.stakeEntries || []).filter((e: any) => e.coldkey === address);
-          return Promise.resolve({ toJSON: () => entries });
+        getStakeInfoForColdkeys: jest.fn().mockImplementation((addresses: string[]) => {
+          const result = addresses.map((address: string) => {
+            const entries = (state.stakeEntries || []).filter((e: any) => e.coldkey === address);
+            return [address, entries];
+          });
+          return Promise.resolve({ toJSON: () => result });
         }),
       },
     },

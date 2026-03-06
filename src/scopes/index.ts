@@ -6,24 +6,37 @@ import { holderHandler } from './holder';
 import { taoHolderHandler } from './taoHolder';
 import { delegateHandler } from './delegate';
 import { stakerHandler } from './staker';
+import { taoStringToRao } from '../taostats/client';
+import { config } from '../config';
 import { AuthError, InvalidScopeFormatError, ScopeError } from '../util/errors';
 import { SignerContext } from './signerContext';
 
 export { type SignerContext, resolveSignerContext } from './signerContext';
 
+// Amount pattern: whole number or decimal (e.g. 100, 0.01, 1.5)
+const AMT = '\\d+(?:\\.\\d+)?';
 // subnet:{netuid}:{role} (no amount) for miner/validator/owner
 const SUBNET_ROLE_REGEX = /^subnet:(\d+):(miner|owner|validator)$/;
 // subnet:{netuid}:holder or subnet:{netuid}:holder:{min_alpha}
-const SUBNET_HOLDER_REGEX = /^subnet:(\d+):holder(?::(\d+))?$/;
+const SUBNET_HOLDER_REGEX = new RegExp(`^subnet:(\\d+):holder(?::(${AMT}))?$`);
 // tao:holder or tao:holder:{min_tao}
-const TAO_SCOPE_REGEX = /^tao:holder(?::(\d+))?$/;
+const TAO_SCOPE_REGEX = new RegExp(`^tao:holder(?::(${AMT}))?$`);
 // delegate:{hotkey_ss58} or delegate:{hotkey_ss58}:{min_tao}
-const DELEGATE_SCOPE_REGEX = /^delegate:(5[1-9A-HJ-NP-Za-km-z]{47})(?::(\d+))?$/;
+const DELEGATE_SCOPE_REGEX = new RegExp(`^delegate:(5[1-9A-HJ-NP-Za-km-z]{47})(?::(${AMT}))?$`);
 // staker:{min_tao}
-const STAKER_SCOPE_REGEX = /^staker:(\d+)$/;
+const STAKER_SCOPE_REGEX = new RegExp(`^staker:(${AMT})$`);
 const METADATA_SCOPES = new Set(['openid']);
+const TAOSTATS_SCOPE_TYPES = new Set(['delegate', 'staker']);
 
 const RAO_PER_UNIT = BigInt(1e9);
+
+function raoToDisplay(rao: bigint): string {
+  const whole = rao / RAO_PER_UNIT;
+  const frac = rao % RAO_PER_UNIT;
+  if (frac === 0n) return whole.toString();
+  const fracStr = frac.toString().padStart(9, '0').replace(/0+$/, '');
+  return `${whole}.${fracStr}`;
+}
 
 const subnetHandlers: Record<string, ScopeHandler> = {
   miner: minerHandler,
@@ -41,7 +54,7 @@ export interface ParsedScope {
 }
 
 function optionalAmount(raw: string | undefined): bigint | undefined {
-  return raw !== undefined ? BigInt(raw) * RAO_PER_UNIT : undefined;
+  return raw !== undefined ? taoStringToRao(raw) : undefined;
 }
 
 export function parseScope(scope: string): ParsedScope {
@@ -91,7 +104,7 @@ export function parseScope(scope: string): ParsedScope {
       type: 'staker',
       netuid: 0,
       role: 'staker',
-      minAmount: BigInt(stakerMatch[1]!) * RAO_PER_UNIT,
+      minAmount: taoStringToRao(stakerMatch[1]!),
     };
   }
 
@@ -112,7 +125,18 @@ export function validateScopes(scopes: string[]): void {
     if (!validateScopeFormat(scope)) {
       throw new InvalidScopeFormatError(scope);
     }
+    if (config.isTestnet && isTaostatsScope(scope)) {
+      throw new AuthError(
+        `Scope "${scope}" requires Taostats API (mainnet only)`,
+        400,
+        'Bad Request',
+      );
+    }
   }
+}
+
+function isTaostatsScope(scope: string): boolean {
+  return DELEGATE_SCOPE_REGEX.test(scope) || STAKER_SCOPE_REGEX.test(scope);
 }
 
 const roleDescriptions: Record<string, string> = {
@@ -134,14 +158,14 @@ export function describeScope(scope: string): string {
     if (p.type === 'subnet') {
       const role = roleDescriptions[p.role] || p.role;
       const suffix = p.minAmount !== undefined
-        ? ` (min ${p.minAmount / RAO_PER_UNIT} alpha)`
+        ? ` (min ${raoToDisplay(p.minAmount)} alpha)`
         : '';
       return `${role} on Subnet ${p.netuid}${suffix}`;
     }
 
     if (p.type === 'tao') {
       const suffix = p.minAmount !== undefined
-        ? ` (min ${p.minAmount / RAO_PER_UNIT} TAO)`
+        ? ` (min ${raoToDisplay(p.minAmount)} TAO)`
         : '';
       return `TAO Holder${suffix}`;
     }
@@ -149,13 +173,13 @@ export function describeScope(scope: string): string {
     if (p.type === 'delegate' && p.hotkey) {
       const short = `${p.hotkey.slice(0, 8)}...${p.hotkey.slice(-6)}`;
       const suffix = p.minAmount !== undefined
-        ? ` (min ${p.minAmount / RAO_PER_UNIT} TAO)`
+        ? ` (min ${raoToDisplay(p.minAmount)} TAO)`
         : '';
       return `Delegator to ${short}${suffix}`;
     }
 
     if (p.type === 'staker' && p.minAmount !== undefined) {
-      return `Staker (min ${p.minAmount / RAO_PER_UNIT} TAO total)`;
+      return `Staker (min ${raoToDisplay(p.minAmount)} TAO total)`;
     }
 
     return scope;
