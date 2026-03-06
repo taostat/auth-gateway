@@ -124,7 +124,7 @@ function productionPage(): string {
   </div>
 
   <footer>
-    <a href="https://github.com/taostat/auth-gateway">GitHub</a>
+    <a href="https://github.com/taostat/auth-gateway">GitHub</a> · v${config.version}
   </footer>
 </body>
 </html>`;
@@ -183,7 +183,7 @@ function demoPage(webClientId: string): string {
   ${endpointLinks()}
 
   <footer>
-    <a href="https://github.com/taostat/auth-gateway">GitHub</a>
+    <a href="https://github.com/taostat/auth-gateway">GitHub</a> · v${config.version}
   </footer>
 
   <script data-cfasync="false">
@@ -201,25 +201,79 @@ function demoPage(webClientId: string): string {
 
     // --- Multi-scope builder ---
     var scopeRowId = 0;
+    var TAOSTATS_HOTKEY = '5GKH9FPPnWSUoeeTJp19wVtd84XqFW4pyK2ijV2GsFbhTrP1';
 
-    function addScopeRow() {
+    function addScopeRow(preset) {
       var id = scopeRowId++;
       var container = document.getElementById('scope-rows');
       var row = document.createElement('div');
       row.id = 'scope-row-' + id;
       row.style.cssText = 'display:flex;align-items:center;gap:8px;';
+      var type = (preset && preset.type) || 'subnet';
       row.innerHTML =
-        '<span style="color:var(--text-secondary);font-size:0.85rem;flex-shrink:0;">subnet:</span>' +
-        '<input type="number" min="0" max="65535" value="1" style="width:60px;" class="scope-netuid" oninput="updateScopePreview()">' +
-        '<select class="scope-role" style="flex:1;" onchange="updateScopePreview()">' +
-        '<option value="validator">validator</option>' +
-        '<option value="miner">miner</option>' +
-        '<option value="owner">owner</option>' +
-        '<option value="holder">holder</option>' +
+        '<select class="scope-type" style="flex-shrink:0;" onchange="onScopeTypeChange(' + id + ')">' +
+        '<option value="subnet"' + (type === 'subnet' ? ' selected' : '') + '>Subnet</option>' +
+        '<option value="tao"' + (type === 'tao' ? ' selected' : '') + '>TAO Holder</option>' +
+        '<option value="delegate"' + (type === 'delegate' ? ' selected' : '') + '>Delegated to Validator</option>' +
+        '<option value="staker"' + (type === 'staker' ? ' selected' : '') + '>Staker</option>' +
         '</select>' +
-        '<button style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:0.9rem;padding:2px 6px;line-height:1;" onclick="removeScopeRow(' + id + ')">&times;</button>';
+        '<span class="scope-params" id="scope-params-' + id + '" style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;"></span>' +
+        '<button style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1rem;padding:2px 6px;line-height:1;flex-shrink:0;" onclick="removeScopeRow(' + id + ')">&times;</button>';
       container.appendChild(row);
+      renderScopeParams(id, type, preset);
       updateScopePreview();
+    }
+
+    function renderScopeParams(id, type, preset) {
+      var el = document.getElementById('scope-params-' + id);
+      if (type === 'subnet') {
+        var role = (preset && preset.role) || 'validator';
+        var netuid = (preset && preset.netuid) || '19';
+        var min = (preset && preset.min) || '';
+        el.innerHTML =
+          '<input type="number" min="0" max="65535" value="' + esc(netuid) + '" style="width:56px;flex-shrink:0;" class="scope-netuid" data-row="' + id + '" oninput="updateScopePreview()">' +
+          '<select class="scope-role" data-row="' + id + '" style="flex:1;" onchange="onSubnetRoleChange(' + id + ');updateScopePreview()">' +
+          '<option value="validator"' + (role === 'validator' ? ' selected' : '') + '>validator</option>' +
+          '<option value="miner"' + (role === 'miner' ? ' selected' : '') + '>miner</option>' +
+          '<option value="owner"' + (role === 'owner' ? ' selected' : '') + '>owner</option>' +
+          '<option value="holder"' + (role === 'holder' ? ' selected' : '') + '>holder</option>' +
+          '</select>' +
+          '<span id="scope-min-' + id + '" style="display:' + (role === 'holder' ? 'contents' : 'none') + ';">' +
+          '<input type="number" min="0" value="' + esc(min) + '" placeholder="min alpha" style="width:80px;flex-shrink:0;" class="scope-min" data-row="' + id + '" oninput="updateScopePreview()">' +
+          '</span>';
+      } else if (type === 'tao') {
+        var min = (preset && preset.min) || '';
+        el.innerHTML =
+          '<input type="number" min="0" value="' + esc(min) + '" placeholder="min TAO" style="width:80px;flex-shrink:0;" class="scope-tao-min" data-row="' + id + '" oninput="updateScopePreview()">';
+      } else if (type === 'delegate') {
+        var hotkey = (preset && preset.hotkey) || TAOSTATS_HOTKEY;
+        var min = (preset && preset.min) || '';
+        el.innerHTML =
+          '<select class="scope-hotkey" data-row="' + id + '" onchange="updateScopePreview()" style="flex:1;min-width:0;">' +
+          '<option value="' + TAOSTATS_HOTKEY + '"' + (hotkey === TAOSTATS_HOTKEY ? ' selected' : '') + '>Taostats</option>' +
+          '<option value="5G3wMP3g3d775hauwmAZioYFVZYnvw6eY46wkFy8hEWD5KP3"' + (hotkey === '5G3wMP3g3d775hauwmAZioYFVZYnvw6eY46wkFy8hEWD5KP3' ? ' selected' : '') + '>Opentensor Foundation</option>' +
+          '<option value="5DXdHixxtCvoa6GHKs2Jgrdzc61882Ftx1zN2sYFQuwgL1S1"' + (hotkey === '5DXdHixxtCvoa6GHKs2Jgrdzc61882Ftx1zN2sYFQuwgL1S1' ? ' selected' : '') + '>Yuma (DCG)</option>' +
+          '</select>' +
+          '<input type="number" min="0" value="' + esc(min) + '" placeholder="min TAO" style="width:80px;flex-shrink:0;" class="scope-delegate-min" data-row="' + id + '" oninput="updateScopePreview()">';
+      } else if (type === 'staker') {
+        var min = (preset && preset.min) || '100';
+        el.innerHTML =
+          '<input type="number" min="1" value="' + esc(min) + '" placeholder="min TAO" style="width:90px;" class="scope-staker-min" data-row="' + id + '" oninput="updateScopePreview()">';
+      }
+    }
+
+    function onScopeTypeChange(id) {
+      var row = document.getElementById('scope-row-' + id);
+      var type = row.querySelector('.scope-type').value;
+      renderScopeParams(id, type);
+      updateScopePreview();
+    }
+
+    function onSubnetRoleChange(id) {
+      var row = document.getElementById('scope-row-' + id);
+      var role = row.querySelector('.scope-role').value;
+      var minWrap = document.getElementById('scope-min-' + id);
+      if (minWrap) minWrap.style.display = role === 'holder' ? 'contents' : 'none';
     }
 
     function removeScopeRow(id) {
@@ -228,12 +282,42 @@ function demoPage(webClientId: string): string {
       updateScopePreview();
     }
 
+    function getScopeFromRow(row) {
+      var type = row.querySelector('.scope-type').value;
+      if (type === 'subnet') {
+        var netuid = row.querySelector('.scope-netuid').value || '0';
+        var role = row.querySelector('.scope-role').value;
+        var scope = 'subnet:' + netuid + ':' + role;
+        if (role === 'holder') {
+          var min = row.querySelector('.scope-min');
+          if (min && min.value) scope += ':' + min.value;
+        }
+        return scope;
+      }
+      if (type === 'tao') {
+        var min = row.querySelector('.scope-tao-min');
+        return min && min.value ? 'tao:holder:' + min.value : 'tao:holder';
+      }
+      if (type === 'delegate') {
+        var hotkey = row.querySelector('.scope-hotkey').value || '';
+        var min = row.querySelector('.scope-delegate-min');
+        var scope = 'delegate:' + hotkey;
+        if (min && min.value) scope += ':' + min.value;
+        return scope;
+      }
+      if (type === 'staker') {
+        var min = row.querySelector('.scope-staker-min');
+        return 'staker:' + (min && min.value ? min.value : '100');
+      }
+      return '';
+    }
+
     function getScopes() {
+      var rows = document.querySelectorAll('[id^="scope-row-"]');
       var scopes = [];
-      var netuids = document.querySelectorAll('.scope-netuid');
-      var roles = document.querySelectorAll('.scope-role');
-      for (var i = 0; i < netuids.length; i++) {
-        scopes.push('subnet:' + netuids[i].value + ':' + roles[i].value);
+      for (var i = 0; i < rows.length; i++) {
+        var s = getScopeFromRow(rows[i]);
+        if (s) scopes.push(s);
       }
       return scopes;
     }
@@ -251,7 +335,7 @@ function demoPage(webClientId: string): string {
     }
 
     // Start with one scope row
-    addScopeRow();
+    addScopeRow({ type: 'subnet', role: 'holder', netuid: '19' });
 
     // --- Device code pipe command ---
     const PIPE_CMD = 'curl -s ' + window.location.origin + '/v1/device/demo.sh | bash';

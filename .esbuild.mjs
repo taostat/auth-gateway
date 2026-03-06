@@ -1,14 +1,18 @@
 import { build } from 'esbuild';
 import { cp } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+
+const pkg = JSON.parse(readFileSync('package.json', 'utf-8'));
 
 await build({
   entryPoints: ['src/index.ts'],
   bundle: true,
   platform: 'node',
-  target: 'node24',
+  target: 'node22',
   outfile: 'dist/index.js',
   format: 'cjs',
   sourcemap: true,
+  define: { '__APP_VERSION__': JSON.stringify(pkg.version) },
   external: [
     '@polkadot/api',
     '@polkadot/util-crypto',

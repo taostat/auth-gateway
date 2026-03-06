@@ -1,28 +1,46 @@
 import { ScopeHandler } from './types';
-import { hasAlphaOnSubnet } from '../subtensor/queries';
-import { config } from '../config';
+import { getAlphaStakeOnSubnet } from '../subtensor/queries';
+import { taostatsGet } from '../taostats/client';
+
+interface AlphaBalanceEntry {
+  balance: string;
+}
 
 export const holderHandler: ScopeHandler = {
   async verify(ctx, params) {
+    const minAmount = params.minAmount ?? BigInt(1);
     try {
-      return await hasAlphaOnSubnet(ctx.coldkey, params.netuid);
+      const stake = await getAlphaStakeOnSubnet(ctx.coldkey, params.netuid);
+      return stake >= minAmount;
     } catch (err) {
-      console.error(`On-chain holder check failed for ${ctx.coldkey} on subnet ${params.netuid}:`, err);
-      return await checkBalanceViaTaostatsApi(ctx.coldkey, params.netuid);
+      console.error(
+        `On-chain holder check failed for ${ctx.coldkey} on subnet ${params.netuid}:`,
+        err,
+      );
+      return await checkBalanceViaTaostatsApi(
+        ctx.coldkey,
+        params.netuid,
+        minAmount,
+      );
     }
   },
 };
 
-async function checkBalanceViaTaostatsApi(address: string, netuid: number): Promise<boolean> {
+async function checkBalanceViaTaostatsApi(
+  address: string,
+  netuid: number,
+  minAmount: bigint,
+): Promise<boolean> {
   try {
-    const url = `${config.taostatsApiUrl}/api/subnets/${netuid}/alpha/${address}`;
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!response.ok) return false;
-    const data = (await response.json()) as { balance?: string };
-    const balance = BigInt(data.balance || '0');
-    return balance > BigInt(0);
+    const result = await taostatsGet<AlphaBalanceEntry>(
+      `/api/dtao/stake_balance/latest/v1`,
+      { coldkey: address, netuid: String(netuid), limit: '100' },
+    );
+    let total = BigInt(0);
+    for (const entry of result.data) {
+      total += BigInt(entry.balance || '0');
+    }
+    return total >= minAmount;
   } catch {
     return false;
   }
