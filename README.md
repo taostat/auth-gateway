@@ -187,7 +187,8 @@ npx tsx scripts/create-client.ts
 | `JWT_AUTH_CODE_EXPIRY` | Auth code TTL (seconds) | `30` | No |
 | `SUBTENSOR_WS_URL` | Subtensor WebSocket URL | `wss://entrypoint-finney.opentensor.ai:443` | No |
 | `SUBTENSOR_BLOCK_TIME` | Block time in seconds | `12` | No |
-| `TAOSTATS_API_URL` | Taostats API URL (holder scope fallback) | `https://api.taostats.io` | No |
+| `TAOSTATS_API_URL` | Taostats API URL (holder fallback + indexed scopes) | `https://api.taostats.io` | No |
+| `TAOSTATS_API_KEY` | Taostats API key for `delegate`/`staker` scopes | — | No* |
 | `CHALLENGE_TTL_SECONDS` | Challenge TTL | `120` | No |
 | `DEVICE_CODE_TTL_SECONDS` | Device code TTL | `300` | No |
 | `DEVICE_CODE_POLL_INTERVAL` | Minimum poll interval (seconds) | `5` | No |
@@ -204,16 +205,27 @@ npx tsx scripts/create-client.ts
 
 ## Scopes
 
-Scopes follow the format `subnet:{netuid}:{role}`.
+Scopes support both subnet roles and portfolio/delegation checks:
+
+- `subnet:{netuid}:{role}`
+- `subnet:{netuid}:holder:{min_alpha}`
+- `tao:holder`
+- `tao:holder:{min_tao}`
+- `delegate:{hotkey}`
+- `delegate:{hotkey}:{min_tao}`
+- `staker:{min_tao}`
 
 ### Supported Roles
 
-| Role | Description | On-chain Verification |
-|------|-------------|-----------------------|
-| `miner` | Registered miner on the subnet | Hotkey in `keys` + zero `dividends` |
-| `validator` | Validator on the subnet | Hotkey in `keys` + non-zero `dividends` |
-| `owner` | Subnet owner | `subnetOwner` storage |
-| `holder` | Alpha token holder | `alpha` balance > 0 |
+| Scope Family | Description | Verification Source |
+|-------------|-------------|---------------------|
+| `subnet:*:miner` | Registered miner on subnet | Subtensor `keys` + zero `dividends` |
+| `subnet:*:validator` | Validator on subnet | Subtensor `keys` + non-zero `dividends` |
+| `subnet:*:owner` | Subnet owner | Subtensor `subnetOwner` |
+| `subnet:*:holder` / `subnet:*:holder:{min_alpha}` | Alpha holder (optional minimum) | Subtensor stake info (Taostats fallback) |
+| `tao:holder` / `tao:holder:{min_tao}` | Free TAO balance holder (optional minimum) | Subtensor `system.account` |
+| `delegate:{hotkey}` / `delegate:{hotkey}:{min_tao}` | Delegation to a specific hotkey (optional minimum) | Taostats indexed stake balances |
+| `staker:{min_tao}` | Total staked portfolio threshold | Taostats aggregated stake balances |
 
 ### Examples
 
@@ -222,9 +234,17 @@ subnet:1:miner       # Miner on subnet 1
 subnet:1:validator   # Validator on subnet 1
 subnet:18:owner      # Owner of subnet 18
 subnet:1:holder      # Holds alpha tokens on subnet 1
+subnet:1:holder:100  # Holds at least 100 alpha on subnet 1
+tao:holder           # Holds any TAO balance
+tao:holder:50        # Holds at least 50 TAO free balance
+delegate:5F...abc    # Delegates to a specific hotkey
+delegate:5F...abc:500 # Delegates at least 500 TAO to that hotkey
+staker:1000          # Has at least 1000 TAO total staked
 ```
 
 Scopes are verified on-chain during initial authentication and **always re-verified on refresh**. Access tokens are epoch-aligned — they expire at the next epoch boundary, so refresh frequency is naturally governed by the subnet's tempo.
+
+\* `TAOSTATS_API_KEY` is required when using `delegate:*` or `staker:*` scopes.
 
 ## Security
 
@@ -289,11 +309,16 @@ src/
 │   ├── validator.ts           # Validator role (non-zero dividends)
 │   ├── owner.ts               # Subnet owner role
 │   ├── holder.ts              # Alpha token holder role
+│   ├── taoHolder.ts           # TAO free balance holder
+│   ├── delegate.ts            # Delegation to validator (Taostats API)
+│   ├── staker.ts              # Total staked portfolio (Taostats API)
 │   ├── types.ts               # Scope handler interface
 │   └── signerContext.ts       # Signer context (hotkey/coldkey)
 ├── subtensor/
 │   ├── client.ts              # Subtensor WebSocket client
 │   └── queries.ts             # On-chain queries (with timeouts)
+├── taostats/
+│   └── client.ts              # Taostats API client (auth, caching)
 ├── util/
 │   ├── errors.ts              # Custom error classes
 │   ├── boundedMap.ts          # Bounded map with eviction
@@ -312,10 +337,11 @@ npm run typecheck           # TypeScript type checking
 
 ### Adding a New Scope Type
 
-1. Add the role to the scope verifier in `src/scopes/index.ts`
-2. Implement the on-chain query in `src/subtensor/queries.ts`
-3. Add a description for the role in `describeScopes()`
-4. Add tests
+1. Create a handler implementing `ScopeHandler` in `src/scopes/`
+2. Add a regex and parser case in `src/scopes/index.ts`
+3. Register the handler in `verifyScopes()` and add to `describeScope()`
+4. Add the data source query (Subtensor in `src/subtensor/queries.ts` or Taostats in `src/taostats/client.ts`)
+5. Add tests
 
 ## Deployment
 
@@ -346,6 +372,7 @@ Migration files are in `migrations/` and tracked in the `_migrations` table.
 - Provide RSA keys via `RSA_PRIVATE_KEY_BASE64` / `RSA_PUBLIC_KEY_BASE64`
 - Configure `PUBLIC_URL` to your external URL
 - Set `VERIFICATION_URI` to your public device verification URL
+- Set `TAOSTATS_API_KEY` if using `delegate:*` or `staker:*` scopes
 - Monitor `/health` endpoint (checks both subtensor and database connectivity)
 
 ## For Developers: Integrating with Auth Gateway

@@ -81,11 +81,29 @@ export async function getStakeInfoForColdkey(address: string): Promise<StakeInfo
 }
 
 /**
- * Check whether a coldkey holds any alpha stake on a specific subnet.
+ * Get the total alpha stake a coldkey holds on a specific subnet.
+ * Returns the sum across all hotkeys in RAO.
  */
-export async function hasAlphaOnSubnet(address: string, netuid: number): Promise<boolean> {
+export async function getAlphaStakeOnSubnet(address: string, netuid: number): Promise<bigint> {
   const stakeEntries = await getStakeInfoForColdkey(address);
-  return stakeEntries.some(e => e.netuid === netuid && e.stake > BigInt(0));
+  let total = BigInt(0);
+  for (const e of stakeEntries) {
+    if (e.netuid === netuid) total += e.stake;
+  }
+  return total;
+}
+
+/**
+ * Get the free TAO balance for an address (in RAO).
+ */
+export async function getTaoBalance(address: string): Promise<bigint> {
+  const api = await getSubtensorApi();
+  const result: any = await withTimeout(
+    (api.query as any).system.account(address),
+    `system.account(${address})`,
+  );
+  const data = result.data || result.toJSON()?.data;
+  return BigInt(data?.free?.toString() || '0');
 }
 
 /**
