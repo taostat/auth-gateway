@@ -12,6 +12,15 @@ export class BoundedMap<K, V> extends Map<K, V> {
     this.isExpired = isExpired;
   }
 
+  override get(key: K): V | undefined {
+    const value = super.get(key);
+    if (value !== undefined && this.isExpired(value)) {
+      this.delete(key);
+      return undefined;
+    }
+    return value;
+  }
+
   override set(key: K, value: V): this {
     if (this.has(key)) {
       return super.set(key, value);

@@ -62,6 +62,11 @@ export class MockChainBuilder {
     return this;
   }
 
+  setTaoBalance(address: string, balance: bigint): this {
+    this.state.accounts.set(address, { free: balance });
+    return this;
+  }
+
   setAlphaBalance(coldkey: string, netuid: number, balance: bigint, hotkey?: string): this {
     this.state.alphaBalances.set(`${coldkey}:${netuid}`, balance);
     if (!this.state.stakeEntries) this.state.stakeEntries = [];
@@ -88,6 +93,14 @@ export function createMockApi(state: MockChainState) {
     on: jest.fn(),
     disconnect: jest.fn().mockResolvedValue(undefined),
     query: {
+      system: {
+        account: jest.fn().mockImplementation((address: string) => {
+          const account = state.accounts.get(address) || { free: BigInt(0) };
+          return Promise.resolve({
+            data: { free: { toString: () => account.free.toString() } },
+          });
+        }),
+      },
       subtensorModule: {
         keys: {
           entries: jest.fn().mockImplementation((netuid: number) => {

@@ -31,6 +31,7 @@ const subtensorDefault = isTestnet
 const publicUrl = normalizeUrl(optionalEnv('PUBLIC_URL', 'http://localhost:3000'));
 
 export const config = {
+  version: optionalEnv('APP_VERSION', typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'),
   port: intEnv('PORT', 3000),
   host: optionalEnv('HOST', '0.0.0.0'),
   nodeEnv: optionalEnv('NODE_ENV', 'development'),
@@ -57,8 +58,9 @@ export const config = {
   subtensorBlockTime: intEnv('SUBTENSOR_BLOCK_TIME', 12),
   subtensorQueryTimeout: intEnv('SUBTENSOR_QUERY_TIMEOUT_MS', 10000),
 
-  // Taostats API (fallback)
+  // Taostats API (fallback + indexed data scopes)
   taostatsApiUrl: optionalEnv('TAOSTATS_API_URL', 'https://api.taostats.io'),
+  taostatsApiKey: process.env['TAOSTATS_API_KEY'] || undefined,
 
   // Challenge
   challengeTtlSeconds: intEnv('CHALLENGE_TTL_SECONDS', 120),
