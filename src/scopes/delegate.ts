@@ -1,5 +1,5 @@
 import { ScopeHandler } from './types';
-import { taostatsGet, taoStringToRao } from '../taostats/client';
+import { taostatsGet } from '../taostats/client';
 
 interface StakeBalanceEntry {
   balance_as_tao: string;
@@ -38,7 +38,7 @@ export const delegateHandler: ScopeHandler = {
     const minTao = params.minAmount ?? BigInt(1);
     let totalRao = BigInt(0);
     for (const entry of result.data) {
-      totalRao += taoStringToRao(entry.balance_as_tao);
+      totalRao += BigInt(entry.balance_as_tao);
     }
 
     return totalRao >= minTao;

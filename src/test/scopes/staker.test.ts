@@ -24,7 +24,7 @@ describe('Staker Scope Handler', () => {
 
   test('returns true when total exceeds minimum', async () => {
     mockTaostatsGet.mockResolvedValue({
-      data: [{ total_balance_as_tao: '5000.0' }],
+      data: [{ total_balance_as_tao: '5000000000000' }],
       pagination: { total_items: 1 },
     });
     const result = await stakerHandler.verify(
@@ -36,7 +36,7 @@ describe('Staker Scope Handler', () => {
 
   test('returns false when below minimum', async () => {
     mockTaostatsGet.mockResolvedValue({
-      data: [{ total_balance_as_tao: '500.0' }],
+      data: [{ total_balance_as_tao: '500000000000' }],
       pagination: { total_items: 1 },
     });
     const result = await stakerHandler.verify(
@@ -55,9 +55,9 @@ describe('Staker Scope Handler', () => {
     expect(result).toBe(false);
   });
 
-  test('handles precise decimal conversion to RAO', async () => {
+  test('exact 1 RAO balance meets 1 RAO minimum', async () => {
     mockTaostatsGet.mockResolvedValue({
-      data: [{ total_balance_as_tao: '0.000000001' }],
+      data: [{ total_balance_as_tao: '1' }],
       pagination: { total_items: 1 },
     });
     const result = await stakerHandler.verify(
