@@ -51,7 +51,7 @@
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js 22 LTS
 - PostgreSQL 14+
 - Docker & Docker Compose (optional)
 

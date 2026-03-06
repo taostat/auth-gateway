@@ -16,7 +16,7 @@ export interface ClientAuthResult {
  * - Public clients don't need a secret but PKCE will be required.
  */
 export async function authenticateClient(
-  request: FastifyRequest<{ Body: { client_id?: string; client_secret?: string } }>,
+  request: FastifyRequest<{ Body: { client_id?: string | undefined; client_secret?: string | undefined } }>,
 ): Promise<ClientAuthResult> {
   let clientId: string | undefined;
   let clientSecret: string | undefined;

@@ -2,6 +2,23 @@ import fs from 'fs';
 import path from 'path';
 import { getPool } from './pool';
 
+function resolveMigrationsDir(): string | null {
+  const candidates = [
+    process.env['MIGRATIONS_DIR'],
+    path.resolve(process.cwd(), 'migrations'),
+    path.resolve(__dirname, '../migrations'),
+    path.resolve(__dirname, '../../migrations'),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 export async function runMigrations(): Promise<void> {
   const pool = getPool();
   const lockClient = await pool.connect();
@@ -32,8 +49,8 @@ export async function runMigrations(): Promise<void> {
     `);
 
     // Read migration files
-    const migrationsDir = path.resolve(__dirname, '../migrations');
-    if (!fs.existsSync(migrationsDir)) {
+    const migrationsDir = resolveMigrationsDir();
+    if (!migrationsDir) {
       console.log('No migrations directory found, skipping');
       return;
     }

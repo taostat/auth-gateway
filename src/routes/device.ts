@@ -41,6 +41,13 @@ function generateUserCode(): string {
   return code;
 }
 
+function isUniqueConstraintError(err: unknown): err is { code: string } {
+  return typeof err === 'object'
+    && err !== null
+    && 'code' in err
+    && typeof (err as { code?: unknown }).code === 'string';
+}
+
 export function startDeviceCodeCleanup(intervalMs: number = 60000): void {
   if (cleanupInterval) return;
   cleanupInterval = setInterval(() => { cleanupPromise = dbCleanupExpired().catch((err) => { console.error('Device code cleanup error:', err.message); }); }, intervalMs);
@@ -70,9 +77,9 @@ async function createUniqueDeviceCodeRecord(
     try {
       await dbCreateDeviceCode(deviceCode, userCode, clientId, scopes, expiresAt);
       return { deviceCode, userCode };
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Retry on unique collisions (user_code/device_code)
-      if (err?.code === '23505' && attempt < maxAttempts - 1) {
+      if (isUniqueConstraintError(err) && err.code === '23505' && attempt < maxAttempts - 1) {
         continue;
       }
       throw err;

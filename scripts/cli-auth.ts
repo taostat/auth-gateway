@@ -39,6 +39,13 @@ const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
 
+type DevicePollResponse = {
+  access_token?: string;
+  refresh_token?: string;
+  error?: string;
+  error_description?: string;
+};
+
 function decodeJwtPayload(token: string): any {
   const payload = token.split('.')[1];
   return JSON.parse(Buffer.from(payload, 'base64url').toString());
@@ -113,14 +120,18 @@ async function main() {
       body: JSON.stringify(pollBody),
     });
 
-    const data = await pollRes.json().catch(() => null);
+    const data = (await pollRes.json().catch(() => null)) as DevicePollResponse | null;
+    const oauthError = data?.error;
 
-    if (pollRes.status === 428) {
+    if (
+      (pollRes.status === 400 || pollRes.status === 428)
+      && (oauthError === 'authorization_pending' || oauthError === 'slow_down')
+    ) {
       process.stdout.write(dim('.'));
       continue;
     }
 
-    if (pollRes.status === 200 && data?.access_token) {
+    if (pollRes.status === 200 && typeof data?.access_token === 'string') {
       console.log(`\n\n${green('Authorized!')}\n`);
 
       const claims = decodeJwtPayload(data.access_token);
@@ -128,7 +139,9 @@ async function main() {
       console.log(`${bold('Scopes:')}   ${(claims.scope as string) || 'none'}`);
       console.log(`${bold('Expires:')}  ${new Date(claims.exp * 1000).toISOString()}`);
       console.log(`\n${bold('Access Token:')}\n${dim(data.access_token)}\n`);
-      console.log(`${bold('Refresh Token:')}\n${dim(data.refresh_token)}\n`);
+      if (typeof data.refresh_token === 'string') {
+        console.log(`${bold('Refresh Token:')}\n${dim(data.refresh_token)}\n`);
+      }
       process.exit(0);
     }
 

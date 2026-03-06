@@ -1,11 +1,11 @@
 # Stage 1: Install dependencies
-FROM node:24-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --production=false
 
 # Stage 2: Build (typecheck is handled by CI, not here)
-FROM node:24-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json .esbuild.mjs ./
@@ -13,7 +13,7 @@ COPY src/ ./src/
 RUN node .esbuild.mjs
 
 # Stage 3: Production
-FROM node:24-alpine AS prod
+FROM node:22-alpine AS prod
 WORKDIR /app
 ENV NODE_ENV=production
 
