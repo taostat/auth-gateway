@@ -66,6 +66,7 @@ async function main(): Promise<void> {
       level: config.nodeEnv === 'production' ? 'info' : 'debug',
     },
     bodyLimit: config.jsonBodyLimitBytes,
+    trustProxy: true,
   });
 
   // Set Zod validation compilers
