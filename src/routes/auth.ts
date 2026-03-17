@@ -85,13 +85,14 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     // Verify signature (method-aware)
     await verifySignatureOrThrow(nonce, signature, address, method);
 
-    // Resolve signer context
+    // Enforce scope-method compatibility (always, not just at challenge time)
     const isEvm = method === 'evm';
+    validateScopesForSignMethod(challenge.scopes, method);
+
     const signerCtx = isEvm
       ? resolveEvmSignerContext(address)
       : await resolveSignerContext(address);
 
-    // Verify scopes on-chain if any were requested (skip for EVM — openid only)
     if (!isEvm && challenge.scopes.length > 0) {
       await verifyScopes(signerCtx, challenge.scopes);
     }
