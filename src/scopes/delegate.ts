@@ -20,7 +20,7 @@ export const delegateHandler: ScopeHandler = {
       result = await taostatsGet<StakeBalanceEntry>(
         '/api/dtao/stake_balance/latest/v1',
         {
-          coldkey: ctx.coldkey,
+          coldkey: ctx.coldkey!,
           hotkey: params.hotkey,
           limit: '100',
         },

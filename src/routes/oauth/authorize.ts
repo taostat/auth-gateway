@@ -4,13 +4,14 @@ import { consumeChallenge } from '../../crypto/challenge';
 import { verifySignatureOrThrow } from '../../crypto/signature';
 import { createAuthCode } from '../../crypto/jwt';
 import { validateCodeChallenge } from '../../crypto/pkce';
-import { verifyScopes, validateScopes, describeScopes, enforceClientScopes, resolveSignerContext } from '../../scopes';
+import { validateAndNormalizeAddress, getClientSignMethod } from '../../crypto/address';
+import { verifyScopes, validateScopes, validateScopesForSignMethod, describeScopes, enforceClientScopes, resolveSignerContext, resolveEvmSignerContext } from '../../scopes';
 import { getClientById } from '../../db/clients';
-import { AuthError, InvalidAddressError } from '../../util/errors';
+import { AuthError } from '../../util/errors';
 import { config } from '../../config';
 import { OAuthClient } from '../../types';
-import { escapeHtml, serializeForInlineScript, walletBannerHtml, checkWalletScript, authHeaderHtml, poweredByHtml, starryBackgroundHtml } from '../../util/html';
-import { isValidSS58, applyHtmlSecurityHeaders, sendHtmlError, generateNonce } from './shared';
+import { escapeHtml, serializeForInlineScript, walletBannerHtml, mobileDetectScript, checkWalletScript, checkEthereumWalletScript, ethereumBannerHtml, authHeaderHtml, poweredByHtml, starryBackgroundHtml } from '../../util/html';
+import { applyHtmlSecurityHeaders, sendHtmlError, generateNonce } from './shared';
 import { cssLinks } from '../../styles';
 import { testnetBannerHtml } from '../../util/testnet';
 import { AuthorizeQuerySchema, CallbackBodySchema } from '../../schemas/oauth';
@@ -87,6 +88,8 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
     const scopeDescriptions = describeScopes(scopes);
 
     const cspNonce = generateNonce();
+    const clientSignMethod = getClientSignMethod(client.allowed_sign_methods);
+    const isEvmClient = clientSignMethod === 'evm';
 
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -100,7 +103,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
   ${starryBackgroundHtml(cspNonce)}
   ${testnetBannerHtml()}
   ${authHeaderHtml}
-  ${walletBannerHtml()}
+  ${isEvmClient ? ethereumBannerHtml() : walletBannerHtml()}
   <div class="auth-card">
     <h1>Authorize access</h1>
     <p class="info"><strong>${escapeHtml(client.client_name)}</strong> wants to verify your wallet identity. You will sign a message to prove ownership — no transaction will be made.</p>
@@ -108,7 +111,16 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       <h3>Access requested</h3>
       ${scopes.map((s, i) => `<div class="scope-item"><span>${escapeHtml(scopeDescriptions[i] ?? s)}</span> <span class="raw">${escapeHtml(s)}</span></div>`).join('')}
     </div>` : ''}
-    <div id="browser-flow">
+    ${isEvmClient ? `<div id="browser-flow">
+      <div class="account-picker" id="account-picker" style="display:none;">
+        <label>Select account:</label>
+        <select class="account-select" id="account-select"></select>
+      </div>
+      <div class="btn-row">
+        <button class="btn-deny" id="btn-deny">Deny</button>
+        <button class="btn-authorize" id="btn-authorize" disabled>Sign with MetaMask</button>
+      </div>
+    </div>` : `<div id="browser-flow">
       <div class="account-picker" id="account-picker" style="display:none;">
         <label>Select account:</label>
         <select class="account-select" id="account-select"></select>
@@ -139,7 +151,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         <a id="link-cli-refresh" style="cursor:pointer;">Get new challenge</a>
       </div>
       <div class="cli-toggle"><a id="link-show-browser">Back to browser wallet</a></div>
-    </div>
+    </div>`}
     <div id="status" class="status"></div>
   </div>
   ${poweredByHtml}
@@ -152,12 +164,14 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       scopes: ${serializeForInlineScript(scopes)},
       codeChallenge: ${serializeForInlineScript(code_challenge || '')},
       oidcNonce: ${serializeForInlineScript(oidcNonce || '')},
+      signMethod: ${serializeForInlineScript(clientSignMethod)},
     };
 
     let cliNonce = null;
     let cliExpiryTimer = null;
 
-    ${checkWalletScript()}
+    ${mobileDetectScript()}
+    ${isEvmClient ? checkEthereumWalletScript() : checkWalletScript()}
 
     function deny() {
       const params = new URLSearchParams({ error: 'access_denied' });
@@ -175,43 +189,74 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       btn.disabled = true;
       btn.textContent = 'Connecting...';
       try {
-        const { web3Enable, web3Accounts, web3FromAddress } = await import('/static/extension-dapp.js');
-        const extensions = await web3Enable('Taostats Auth');
-        if (extensions.length === 0) {
-          showError('No wallet extension found');
-          btn.textContent = 'No wallet detected';
-          var banner = document.getElementById('wallet-banner');
-          if (banner) banner.style.display = 'flex';
-          return;
-        }
-        const accounts = await web3Accounts();
-        if (accounts.length === 0) { showError('No accounts found'); btn.disabled = false; btn.textContent = 'Sign with browser wallet'; return; }
+        var address, signature, nonce;
 
-        let address;
-        if (accounts.length > 1) {
-          address = await pickAccount(accounts);
+        if (CONFIG.signMethod === 'evm') {
+          // EVM / MetaMask flow
+          if (!window.ethereum) { showError('No Ethereum wallet found. Install MetaMask.'); btn.disabled = false; btn.textContent = 'Sign with MetaMask'; return; }
+          const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+          if (!accounts || accounts.length === 0) { showError('No accounts found'); btn.disabled = false; btn.textContent = 'Sign with MetaMask'; return; }
+
+          if (accounts.length > 1) {
+            address = await pickAccount(accounts.map(function(a) { return { address: a, meta: { name: '' } }; }));
+          } else {
+            address = accounts[0];
+          }
+
+          btn.textContent = 'Signing...';
+
+          var challengeRes = await fetch('/v1/auth/challenge', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ address: address, scopes: CONFIG.scopes }),
+          });
+          if (!challengeRes.ok) { var e = await challengeRes.json(); throw new Error(e.message); }
+          var challengeData = await challengeRes.json();
+          nonce = challengeData.nonce;
+
+          signature = await window.ethereum.request({
+            method: 'personal_sign',
+            params: [nonce, address],
+          });
         } else {
-          address = accounts[0].address;
+          // Taostats wallet flow
+          const { web3Enable, web3Accounts, web3FromAddress } = await import('/static/extension-dapp.js');
+          const extensions = await web3Enable('Taostats Auth');
+          if (extensions.length === 0) {
+            showError('No wallet extension found');
+            btn.textContent = 'No wallet detected';
+            var banner = document.getElementById('wallet-banner');
+            if (banner) banner.style.display = 'flex';
+            return;
+          }
+          var polkaAccounts = await web3Accounts();
+          if (polkaAccounts.length === 0) { showError('No accounts found'); btn.disabled = false; btn.textContent = 'Sign with browser wallet'; return; }
+
+          if (polkaAccounts.length > 1) {
+            address = await pickAccount(polkaAccounts);
+          } else {
+            address = polkaAccounts[0].address;
+          }
+
+          btn.textContent = 'Signing...';
+
+          var challengeRes2 = await fetch('/v1/auth/challenge', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ address: address, scopes: CONFIG.scopes }),
+          });
+          if (!challengeRes2.ok) { var e2 = await challengeRes2.json(); throw new Error(e2.message); }
+          var challengeData2 = await challengeRes2.json();
+          nonce = challengeData2.nonce;
+
+          var injector = await web3FromAddress(address);
+          var sigResult = await injector.signer.signRaw({
+            address: address,
+            data: nonce,
+            type: 'bytes',
+          });
+          signature = sigResult.signature;
         }
-
-        btn.textContent = 'Signing...';
-
-        // Request challenge
-        const challengeRes = await fetch('/v1/auth/challenge', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ address, scopes: CONFIG.scopes }),
-        });
-        if (!challengeRes.ok) { const e = await challengeRes.json(); throw new Error(e.message); }
-        const { nonce } = await challengeRes.json();
-
-        // Sign with extension
-        const injector = await web3FromAddress(address);
-        const { signature } = await injector.signer.signRaw({
-          address,
-          data: nonce,
-          type: 'bytes',
-        });
 
         btn.textContent = 'Verifying...';
 
@@ -220,16 +265,16 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            nonce,
-            address,
-            signature,
+            nonce: nonce,
+            address: address,
+            signature: signature,
             client_id: CONFIG.clientId,
             redirect_uri: CONFIG.redirectUri,
             code_challenge: CONFIG.codeChallenge || undefined,
             oidc_nonce: CONFIG.oidcNonce || undefined,
           }),
         });
-        if (!verifyRes.ok) { const e = await verifyRes.json(); throw new Error(e.message); }
+        if (!verifyRes.ok) { const e3 = await verifyRes.json(); throw new Error(e3.message); }
         const { code } = await verifyRes.json();
 
         // Redirect back with code
@@ -239,7 +284,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       } catch (err) {
         showError(err.message);
         btn.disabled = false;
-        btn.textContent = 'Sign with browser wallet';
+        btn.textContent = CONFIG.signMethod === 'evm' ? 'Sign with MetaMask' : 'Sign with browser wallet';
       }
     }
 
@@ -366,12 +411,18 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
     if (bannerClose) bannerClose.addEventListener('click', function() { this.parentElement.style.display = 'none'; });
     document.getElementById('btn-deny').addEventListener('click', deny);
     document.getElementById('btn-authorize').addEventListener('click', authorize);
-    document.getElementById('link-show-cli').addEventListener('click', showCliFlow);
-    document.getElementById('btn-copy').addEventListener('click', copyCommand);
-    document.getElementById('btn-cli-deny').addEventListener('click', cliDeny);
-    document.getElementById('btn-cli-submit').addEventListener('click', submitCliSignature);
-    document.getElementById('link-cli-refresh').addEventListener('click', showCliFlow);
-    document.getElementById('link-show-browser').addEventListener('click', showBrowserFlow);
+    var showCliEl = document.getElementById('link-show-cli');
+    if (showCliEl) showCliEl.addEventListener('click', showCliFlow);
+    var copyEl = document.getElementById('btn-copy');
+    if (copyEl) copyEl.addEventListener('click', copyCommand);
+    var cliDenyEl = document.getElementById('btn-cli-deny');
+    if (cliDenyEl) cliDenyEl.addEventListener('click', cliDeny);
+    var cliSubmitEl = document.getElementById('btn-cli-submit');
+    if (cliSubmitEl) cliSubmitEl.addEventListener('click', submitCliSignature);
+    var cliRefreshEl = document.getElementById('link-cli-refresh');
+    if (cliRefreshEl) cliRefreshEl.addEventListener('click', showCliFlow);
+    var showBrowserEl = document.getElementById('link-show-browser');
+    if (showBrowserEl) showBrowserEl.addEventListener('click', showBrowserFlow);
   </script>
 </body>
 </html>`;
@@ -395,10 +446,19 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
   }, async (request: FastifyRequest<{
     Body: z.infer<typeof CallbackBodySchema>;
   }>, reply: FastifyReply) => {
-    const { nonce, address, signature, client_id, redirect_uri, code_challenge, oidc_nonce } = request.body;
+    const { nonce, address: rawAddress, signature, client_id, redirect_uri, code_challenge, oidc_nonce } = request.body;
 
-    if (!isValidSS58(address)) {
-      throw new InvalidAddressError();
+    // Look up client to get sign method
+    const callbackClient = await getClientById(client_id);
+    if (!callbackClient) {
+      throw new AuthError('Unknown client_id', 400, 'Bad Request');
+    }
+
+    const clientMethod = getClientSignMethod(callbackClient.allowed_sign_methods);
+    const { address, method } = validateAndNormalizeAddress(rawAddress);
+
+    if (method !== clientMethod) {
+      throw new AuthError(`This client requires ${clientMethod} wallet signing`, 400, 'Bad Request');
     }
 
     // Consume challenge
@@ -408,21 +468,20 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       throw new AuthError('Address mismatch', 401, 'Unauthorized');
     }
 
-    // Verify signature
-    verifySignatureOrThrow(nonce, signature, address);
+    // Verify signature (method-aware)
+    await verifySignatureOrThrow(nonce, signature, address, method);
 
-    // Resolve signer context for scope verification and JWT claims
-    const signerCtx = await resolveSignerContext(address);
+    // Resolve signer context
+    const isEvm = method === 'evm';
+    const signerCtx = isEvm
+      ? resolveEvmSignerContext(address)
+      : await resolveSignerContext(address);
 
-    if (challenge.scopes.length > 0) {
+    if (!isEvm && challenge.scopes.length > 0) {
       await verifyScopes(signerCtx, challenge.scopes);
     }
 
     // Validate client and enforce scope restrictions
-    const callbackClient = await getClientById(client_id);
-    if (!callbackClient) {
-      throw new AuthError('Unknown client_id', 400, 'Bad Request');
-    }
     if (callbackClient.redirect_uris.length > 0) {
       if (!redirect_uri) {
         throw new AuthError('redirect_uri is required', 400, 'Bad Request');
@@ -448,6 +507,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       auth_time: Math.floor(Date.now() / 1000),
       hotkey: signerCtx.hotkey,
       coldkey: signerCtx.coldkey,
+      evm_address: signerCtx.evmAddress,
     });
 
     return reply.code(200).send({ code });

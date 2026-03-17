@@ -12,6 +12,7 @@
  *   --grant-type    Grant type(s), can be repeated (default: authorization_code)
  *   --origin        Allowed origin(s) for CORS, can be repeated
  *   --scope         Allowed scope(s), can be repeated
+ *   --sign-method   Sign method: sr25519 or evm (default: sr25519)
  *   --rate-limit    Rate limit per minute (default: 60)
  */
 
@@ -51,6 +52,7 @@ async function main() {
   const grantTypes = parsed['grant-type'] || ['authorization_code'];
   const origins = parsed['origin'] || [];
   const scopes = parsed['scope'] || [];
+  const signMethod = parsed['sign-method']?.[0] || 'sr25519';
   const rateLimit = parseInt(parsed['rate-limit']?.[0] || '60', 10);
 
   if (!name) {
@@ -66,6 +68,11 @@ async function main() {
 
   if (!['confidential', 'public'].includes(type)) {
     console.error(red('Error: --type must be "confidential" or "public"'));
+    process.exit(1);
+  }
+
+  if (!['sr25519', 'evm'].includes(signMethod)) {
+    console.error(red('Error: --sign-method must be "sr25519" or "evm"'));
     process.exit(1);
   }
 
@@ -89,10 +96,10 @@ async function main() {
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO oauth_clients (client_secret_hash, client_name, client_type, redirect_uris, grant_types, allowed_scopes, allowed_origins, rate_limit)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO oauth_clients (client_secret_hash, client_name, client_type, redirect_uris, grant_types, allowed_scopes, allowed_origins, allowed_sign_methods, rate_limit)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING client_id`,
-      [secretHash, name, type, redirectUris, grantTypes, scopes, origins, rateLimit],
+      [secretHash, name, type, redirectUris, grantTypes, scopes, origins, [signMethod], rateLimit],
     );
 
     const clientId = rows[0].client_id;
@@ -107,6 +114,7 @@ async function main() {
     console.log(`${bold('Type:')}          ${type}`);
     console.log(`${bold('Redirect URIs:')} ${redirectUris.join(', ')}`);
     console.log(`${bold('Grant Types:')}   ${grantTypes.join(', ')}`);
+    console.log(`${bold('Sign Method:')}  ${signMethod}`);
     if (origins.length > 0) console.log(`${bold('Origins:')}       ${origins.join(', ')}`);
     if (scopes.length > 0) console.log(`${bold('Scopes:')}        ${scopes.join(', ')}`);
     console.log(`${bold('Rate Limit:')}    ${rateLimit}/min`);

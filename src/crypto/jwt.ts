@@ -7,7 +7,7 @@ import { JwtClaims } from '../types';
 export function createAccessToken(
   address: string,
   scopes: string[],
-  opts?: { client_id?: string | undefined; expiresIn?: number | undefined; hotkey?: string | null | undefined; coldkey?: string | null | undefined },
+  opts?: { client_id?: string | undefined; expiresIn?: number | undefined; hotkey?: string | null | undefined; coldkey?: string | null | undefined; evm_address?: string | null | undefined },
 ): string {
   return jwt.sign(
     {
@@ -18,6 +18,7 @@ export function createAccessToken(
       ...(opts?.client_id && { client_id: opts.client_id }),
       hotkey: opts?.hotkey ?? null,
       coldkey: opts?.coldkey ?? null,
+      evm_address: opts?.evm_address ?? null,
     },
     getPrivateKey(),
     {
@@ -33,7 +34,7 @@ export function createAccessToken(
 export function createRefreshToken(
   address: string,
   scopes: string[],
-  opts?: { jti?: string | undefined; client_id?: string | undefined; epoch?: number | undefined; auth_time?: number | undefined; hotkey?: string | null | undefined; coldkey?: string | null | undefined },
+  opts?: { jti?: string | undefined; client_id?: string | undefined; epoch?: number | undefined; auth_time?: number | undefined; hotkey?: string | null | undefined; coldkey?: string | null | undefined; evm_address?: string | null | undefined },
 ): string {
   return jwt.sign(
     {
@@ -46,6 +47,7 @@ export function createRefreshToken(
       ...(opts?.auth_time != null && { auth_time: opts.auth_time }),
       hotkey: opts?.hotkey ?? null,
       coldkey: opts?.coldkey ?? null,
+      evm_address: opts?.evm_address ?? null,
     },
     getPrivateKey(),
     {
@@ -69,6 +71,7 @@ export function createAuthCode(
     auth_time?: number | undefined;
     hotkey?: string | null | undefined;
     coldkey?: string | null | undefined;
+    evm_address?: string | null | undefined;
   },
 ): string {
   return jwt.sign(
@@ -84,6 +87,7 @@ export function createAuthCode(
       ...(opts?.auth_time != null && { auth_time: opts.auth_time }),
       hotkey: opts?.hotkey ?? null,
       coldkey: opts?.coldkey ?? null,
+      evm_address: opts?.evm_address ?? null,
     },
     getPrivateKey(),
     {
@@ -117,6 +121,7 @@ export function createIdToken(
     expiresIn?: number | undefined;
     hotkey?: string | null | undefined;
     coldkey?: string | null | undefined;
+    evm_address?: string | null | undefined;
   },
 ): string {
   return jwt.sign(
@@ -130,6 +135,7 @@ export function createIdToken(
       client_id: opts.client_id,
       hotkey: opts.hotkey ?? null,
       coldkey: opts.coldkey ?? null,
+      evm_address: opts.evm_address ?? null,
     },
     getPrivateKey(),
     {

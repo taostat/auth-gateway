@@ -4,8 +4,9 @@ import { z } from 'zod';
 import { createAccessToken, createRefreshToken, createIdToken, verifyToken } from '../../crypto/jwt';
 import { verifyCodeVerifier, validateCodeVerifier } from '../../crypto/pkce';
 import { markAuthCodeConsumed } from '../../crypto/authCodeTracker';
-import { verifyScopes, resolveSignerContext } from '../../scopes';
+import { verifyScopes, resolveSignerContext, resolveEvmSignerContext } from '../../scopes';
 import { authenticateClient } from '../../middleware/clientAuth';
+import { getClientSignMethod } from '../../crypto/address';
 import { checkClientRateLimit } from '../../middleware/clientRateLimit';
 import { storeRefreshToken, rotateRefreshToken, getRefreshToken, RotateError } from '../../db/refreshTokens';
 import {
@@ -29,7 +30,7 @@ import { TokenBodySchema } from '../../schemas/oauth';
 import { TokenResponseSchema } from '../../schemas/responses';
 
 type TokenBody = z.infer<typeof TokenBodySchema>;
-type TokenClient = { client_id: string; rate_limit: number; grant_types: string[] };
+type TokenClient = { client_id: string; rate_limit: number; grant_types: string[]; allowed_sign_methods: string[] };
 
 function getErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : '';
@@ -47,6 +48,7 @@ function buildTokenResponse(
     coldkey: string | null;
     auth_time: number;
     nonce?: string | undefined;
+    evm_address?: string | null | undefined;
   },
 ): TokenResponse {
   const response: TokenResponse = {
@@ -65,6 +67,7 @@ function buildTokenResponse(
       expiresIn,
       hotkey: opts.hotkey,
       coldkey: opts.coldkey,
+      evm_address: opts.evm_address,
     });
   }
 
@@ -137,6 +140,7 @@ async function handleAuthorizationCode(
   const refreshJti = randomUUID();
   const hotkey = claims.hotkey ?? null;
   const coldkey = claims.coldkey ?? null;
+  const evmAddress = claims.evm_address ?? null;
   const authTime = claims.auth_time ?? Math.floor(Date.now() / 1000);
 
   const accessToken = createAccessToken(address, scopes, {
@@ -144,6 +148,7 @@ async function handleAuthorizationCode(
     expiresIn: accessExpiry,
     hotkey,
     coldkey,
+    evm_address: evmAddress,
   });
   const refreshToken = createRefreshToken(address, scopes, {
     jti: refreshJti,
@@ -152,6 +157,7 @@ async function handleAuthorizationCode(
     auth_time: authTime,
     hotkey,
     coldkey,
+    evm_address: evmAddress,
   });
 
   await storeRefreshToken({
@@ -165,7 +171,7 @@ async function handleAuthorizationCode(
 
   return reply.code(200).send(
     buildTokenResponse(address, accessToken, refreshToken, scopes, accessExpiry, {
-      client_id: client.client_id, hotkey, coldkey, auth_time: authTime, nonce: claims.nonce,
+      client_id: client.client_id, hotkey, coldkey, auth_time: authTime, nonce: claims.nonce, evm_address: evmAddress,
     }),
   );
 }
@@ -213,17 +219,31 @@ async function handleRefreshToken(
 
   const address = claims.sub;
   const scopes = claims.scope ? claims.scope.split(' ').filter(Boolean) : [];
+  const evmAddress = claims.evm_address ?? null;
+  const isEvm = !!evmAddress;
 
-  // Start epoch query concurrently with scope verification
-  const epochPromise = getEpochInfo(scopes);
+  let accessExpiry: number;
+  let currentEpoch: number | null = null;
+  let signerCtx;
 
-  const signerCtx = await resolveSignerContext(address);
+  if (isEvm) {
+    // EVM refresh: skip on-chain verification, use config expiry
+    accessExpiry = config.jwtAccessTokenExpiry;
+    signerCtx = resolveEvmSignerContext(address);
+  } else {
+    // Start epoch query concurrently with scope verification
+    const epochPromise = getEpochInfo(scopes);
 
-  if (scopes.length > 0) {
-    await verifyScopes(signerCtx, scopes);
+    signerCtx = await resolveSignerContext(address);
+
+    if (scopes.length > 0) {
+      await verifyScopes(signerCtx, scopes);
+    }
+
+    const epochInfo = await epochPromise;
+    accessExpiry = epochInfo.accessExpiry;
+    currentEpoch = epochInfo.epoch;
   }
-
-  const { accessExpiry, epoch: currentEpoch } = await epochPromise;
 
   const newRefreshJti = randomUUID();
   try {
@@ -250,6 +270,7 @@ async function handleRefreshToken(
     expiresIn: accessExpiry,
     hotkey: signerCtx.hotkey,
     coldkey: signerCtx.coldkey,
+    evm_address: signerCtx.evmAddress,
   });
   const newRefreshToken = createRefreshToken(address, scopes, {
     jti: newRefreshJti,
@@ -258,11 +279,12 @@ async function handleRefreshToken(
     auth_time: authTime,
     hotkey: signerCtx.hotkey,
     coldkey: signerCtx.coldkey,
+    evm_address: signerCtx.evmAddress,
   });
 
   return reply.code(200).send(
     buildTokenResponse(address, accessToken, newRefreshToken, scopes, accessExpiry, {
-      client_id: client.client_id, hotkey: signerCtx.hotkey, coldkey: signerCtx.coldkey, auth_time: authTime,
+      client_id: client.client_id, hotkey: signerCtx.hotkey, coldkey: signerCtx.coldkey, auth_time: authTime, evm_address: signerCtx.evmAddress,
     }),
   );
 }
@@ -311,13 +333,27 @@ async function handleDeviceCode(
 
   await deleteDeviceCode(device_code);
 
-  const [{ accessExpiry, epoch }, signerCtx] = await Promise.all([
-    getEpochInfo(entry.scopes),
-    resolveSignerContext(entry.address),
-  ]);
+  const isEvm = getClientSignMethod(client.allowed_sign_methods) === 'evm';
 
-  if (entry.scopes.length > 0) {
-    await verifyScopes(signerCtx, entry.scopes);
+  let signerCtx;
+  let accessExpiry: number;
+  let epoch: number | null = null;
+
+  if (isEvm) {
+    signerCtx = resolveEvmSignerContext(entry.address);
+    accessExpiry = config.jwtAccessTokenExpiry;
+  } else {
+    const [epochInfo, ctx] = await Promise.all([
+      getEpochInfo(entry.scopes),
+      resolveSignerContext(entry.address),
+    ]);
+    signerCtx = ctx;
+    accessExpiry = epochInfo.accessExpiry;
+    epoch = epochInfo.epoch;
+
+    if (entry.scopes.length > 0) {
+      await verifyScopes(signerCtx, entry.scopes);
+    }
   }
 
   const refreshJti = randomUUID();
@@ -329,6 +365,7 @@ async function handleDeviceCode(
     expiresIn: accessExpiry,
     hotkey: signerCtx.hotkey,
     coldkey: signerCtx.coldkey,
+    evm_address: signerCtx.evmAddress,
   });
   const refreshToken = createRefreshToken(entry.address, entry.scopes, {
     jti: refreshJti,
@@ -337,6 +374,7 @@ async function handleDeviceCode(
     auth_time: authTime,
     hotkey: signerCtx.hotkey,
     coldkey: signerCtx.coldkey,
+    evm_address: signerCtx.evmAddress,
   });
 
   await storeRefreshToken({
@@ -350,7 +388,7 @@ async function handleDeviceCode(
 
   return reply.code(200).send(
     buildTokenResponse(entry.address, accessToken, refreshToken, entry.scopes, accessExpiry, {
-      client_id: client.client_id, hotkey: signerCtx.hotkey, coldkey: signerCtx.coldkey, auth_time: authTime,
+      client_id: client.client_id, hotkey: signerCtx.hotkey, coldkey: signerCtx.coldkey, auth_time: authTime, evm_address: signerCtx.evmAddress,
     }),
   );
 }

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { config } from '../config';
 import { createClient, listClients, deactivateClient } from '../db/clients';
 import { AdminAuthError, AuthError } from '../util/errors';
+import { validateScopeFormat } from '../scopes';
 import { CreateClientBodySchema, ClientIdParamsSchema } from '../schemas/admin';
 import { ErrorResponseSchema } from '../schemas/responses';
 
@@ -56,7 +57,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
   }>, reply: FastifyReply) => {
     requireAdmin(request);
 
-    const { client_name, client_type, redirect_uris, grant_types, allowed_scopes, allowed_origins, rate_limit } = request.body;
+    const { client_name, client_type, redirect_uris, grant_types, allowed_scopes, allowed_origins, allowed_sign_methods, rate_limit } = request.body;
 
     const CALLBACK_GRANTS = new Set([
       'authorization_code',
@@ -73,6 +74,31 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
       validateRedirectUri(uri);
     }
 
+    // Validate allowed_sign_methods: must have exactly one element
+    if (allowed_sign_methods.length !== 1) {
+      throw new AuthError('allowed_sign_methods must contain exactly one sign method', 400, 'Bad Request');
+    }
+
+    // Validate each scope format
+    if (allowed_scopes) {
+      for (const scope of allowed_scopes) {
+        if (!validateScopeFormat(scope)) {
+          throw new AuthError(`Invalid scope format: ${scope}`, 400, 'Bad Request');
+        }
+      }
+    }
+
+    // EVM clients must explicitly set allowed_scopes to ['openid']
+    if (allowed_sign_methods.includes('evm')) {
+      if (!allowed_scopes || allowed_scopes.length === 0) {
+        throw new AuthError('EVM clients must specify allowed_scopes: ["openid"]', 400, 'Bad Request');
+      }
+      const nonOpenid = allowed_scopes.filter((s) => s !== 'openid');
+      if (nonOpenid.length > 0) {
+        throw new AuthError('EVM clients can only use the "openid" scope', 400, 'Bad Request');
+      }
+    }
+
     const result = await createClient({
       client_name,
       client_type,
@@ -80,18 +106,20 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
       grant_types,
       allowed_scopes,
       allowed_origins,
+      allowed_sign_methods,
       rate_limit,
     });
 
     return reply.code(201).send({
       client_id: result.client.client_id,
-      client_secret: result.client_secret, // Only returned once, on creation
+      client_secret: result.client_secret,
       client_name: result.client.client_name,
       client_type: result.client.client_type,
       redirect_uris: result.client.redirect_uris,
       grant_types: result.client.grant_types,
       allowed_scopes: result.client.allowed_scopes,
       allowed_origins: result.client.allowed_origins,
+      allowed_sign_methods: result.client.allowed_sign_methods,
       rate_limit: result.client.rate_limit,
     });
   });
@@ -117,6 +145,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
         grant_types: c.grant_types,
         allowed_scopes: c.allowed_scopes,
         allowed_origins: c.allowed_origins,
+        allowed_sign_methods: c.allowed_sign_methods,
         rate_limit: c.rate_limit,
         active: c.active,
         created_at: c.created_at,

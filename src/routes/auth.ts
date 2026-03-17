@@ -3,13 +3,14 @@ import { z } from 'zod';
 import { createChallenge, consumeChallenge } from '../crypto/challenge';
 import { verifySignatureOrThrow } from '../crypto/signature';
 import { createAccessToken } from '../crypto/jwt';
-import { verifyScopes, validateScopes, resolveSignerContext } from '../scopes';
+import { validateAndNormalizeAddress } from '../crypto/address';
+import { verifyScopes, validateScopes, validateScopesForSignMethod, resolveSignerContext, resolveEvmSignerContext } from '../scopes';
 import { InvalidAddressError } from '../util/errors';
 import { config } from '../config';
 import { ChallengeBodySchema, VerifyBodySchema } from '../schemas/auth';
 import { ChallengeResponseSchema, TokenResponseSchema } from '../schemas/responses';
 import { ChallengeResponse, TokenResponse } from '../types';
-import { isValidSS58, getAccessTokenExpiry } from './oauth/shared';
+import { getAccessTokenExpiry } from './oauth/shared';
 
 export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /v1/auth/challenge
@@ -29,10 +30,13 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   }, async (request: FastifyRequest<{
     Body: z.infer<typeof ChallengeBodySchema>;
   }>, reply: FastifyReply) => {
-    const { address, scopes = [] } = request.body;
+    const { address: rawAddress, scopes = [] } = request.body;
 
-    if (address && !isValidSS58(address)) {
-      throw new InvalidAddressError();
+    let address = rawAddress;
+    if (address) {
+      const result = validateAndNormalizeAddress(address);
+      address = result.address;
+      validateScopesForSignMethod(scopes, result.method);
     }
 
     if (scopes.length > 0) {
@@ -66,11 +70,9 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   }, async (request: FastifyRequest<{
     Body: z.infer<typeof VerifyBodySchema>;
   }>, reply: FastifyReply) => {
-    const { nonce, address, signature } = request.body;
+    const { nonce, address: rawAddress, signature } = request.body;
 
-    if (!isValidSS58(address)) {
-      throw new InvalidAddressError();
-    }
+    const { address, method } = validateAndNormalizeAddress(rawAddress);
 
     // Consume challenge (single-use, throws if expired/missing)
     const challenge = await consumeChallenge(nonce);
@@ -80,18 +82,23 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       throw new InvalidAddressError();
     }
 
-    // Verify signature
-    verifySignatureOrThrow(nonce, signature, address);
+    // Verify signature (method-aware)
+    await verifySignatureOrThrow(nonce, signature, address, method);
 
-    // Resolve signer context (hotkey/coldkey) for scope verification and JWT claims
-    const signerCtx = await resolveSignerContext(address);
+    // Resolve signer context
+    const isEvm = method === 'evm';
+    const signerCtx = isEvm
+      ? resolveEvmSignerContext(address)
+      : await resolveSignerContext(address);
 
-    // Verify scopes on-chain if any were requested
-    if (challenge.scopes.length > 0) {
+    // Verify scopes on-chain if any were requested (skip for EVM — openid only)
+    if (!isEvm && challenge.scopes.length > 0) {
       await verifyScopes(signerCtx, challenge.scopes);
     }
 
-    const accessExpiry = await getAccessTokenExpiry(challenge.scopes);
+    const accessExpiry = isEvm
+      ? config.jwtAccessTokenExpiry
+      : await getAccessTokenExpiry(challenge.scopes);
 
     // Issue access token only for direct flow.
     // Refresh token rotation/revocation is enforced in OAuth/device flows with client context.
@@ -99,6 +106,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       expiresIn: accessExpiry,
       hotkey: signerCtx.hotkey,
       coldkey: signerCtx.coldkey,
+      evm_address: signerCtx.evmAddress,
     });
 
     const response: TokenResponse = {

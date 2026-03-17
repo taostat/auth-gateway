@@ -1,19 +1,9 @@
 import crypto from 'crypto';
 import { FastifyReply } from 'fastify';
-import { decodeAddress } from '@polkadot/util-crypto';
 import { getEpochDetails } from '../../subtensor/queries';
 import { config } from '../../config';
 import { escapeHtml } from '../../util/html';
 import { cssLinks } from '../../styles';
-
-export function isValidSS58(address: string): boolean {
-  try {
-    decodeAddress(address);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export function errorPage(title: string, message: string): string {
   return `<!DOCTYPE html>
