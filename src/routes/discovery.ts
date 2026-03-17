@@ -46,7 +46,8 @@ export async function discoveryRoutes(fastify: FastifyInstance): Promise<void> {
       code_challenge_methods_supported: ['S256'],
       id_token_signing_alg_values_supported: ['RS256'],
       subject_types_supported: ['public'],
-      claims_supported: ['sub', 'iss', 'aud', 'exp', 'iat', 'auth_time', 'nonce', 'at_hash', 'scope', 'hotkey', 'coldkey', 'client_id'],
+      sign_methods_supported: ['sr25519', 'evm'],
+      claims_supported: ['sub', 'iss', 'aud', 'exp', 'iat', 'auth_time', 'nonce', 'at_hash', 'scope', 'hotkey', 'coldkey', 'evm_address', 'client_id'],
       service_documentation: `${issuer}/docs`,
     };
 

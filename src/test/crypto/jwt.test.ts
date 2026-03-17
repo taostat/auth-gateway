@@ -136,4 +136,53 @@ describe('JWT', () => {
     const refreshExpiry = refreshDecoded.exp - refreshDecoded.iat;
     expect(refreshExpiry).toBeGreaterThan(accessExpiry);
   });
+
+  test('evm_address claim is included when provided', () => {
+    const evmAddr = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+    const token = createAccessToken(evmAddr, ['openid'], {
+      evm_address: evmAddr,
+      hotkey: null,
+      coldkey: null,
+    });
+    const decoded = verifyToken(token);
+    expect(decoded.evm_address).toBe(evmAddr);
+    expect(decoded.hotkey).toBeNull();
+    expect(decoded.coldkey).toBeNull();
+  });
+
+  test('evm_address is null when not provided', () => {
+    const token = createAccessToken(address, []);
+    const decoded = verifyToken(token);
+    expect(decoded.evm_address).toBeNull();
+  });
+
+  test('evm_address in refresh token', () => {
+    const evmAddr = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+    const token = createRefreshToken(evmAddr, ['openid'], {
+      evm_address: evmAddr,
+    });
+    const decoded = verifyToken(token);
+    expect(decoded.evm_address).toBe(evmAddr);
+  });
+
+  test('evm_address in auth code', () => {
+    const evmAddr = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+    const token = createAuthCode(evmAddr, ['openid'], {
+      evm_address: evmAddr,
+    });
+    const decoded = verifyToken(token);
+    expect(decoded.evm_address).toBe(evmAddr);
+  });
+
+  test('evm_address in id token', () => {
+    const evmAddr = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+    const accessToken = createAccessToken(evmAddr, ['openid'], { evm_address: evmAddr });
+    const idToken = createIdToken(evmAddr, ['openid'], accessToken, {
+      client_id: 'evm-client',
+      auth_time: Math.floor(Date.now() / 1000),
+      evm_address: evmAddr,
+    });
+    const decoded = verifyIdToken(idToken, 'evm-client');
+    expect(decoded.evm_address).toBe(evmAddr);
+  });
 });

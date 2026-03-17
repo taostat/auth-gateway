@@ -44,8 +44,8 @@ export class InvalidSignatureError extends AuthError {
 }
 
 export class InvalidAddressError extends AuthError {
-  constructor() {
-    super('Invalid SS58 address', 400, 'Bad Request');
+  constructor(message: string = 'Invalid SS58 address') {
+    super(message, 400, 'Bad Request');
     this.name = 'InvalidAddressError';
   }
 }

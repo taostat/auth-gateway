@@ -10,7 +10,7 @@ export const holderHandler: ScopeHandler = {
   async verify(ctx, params) {
     const minAmount = params.minAmount ?? BigInt(1);
     try {
-      const stake = await getAlphaStakeOnSubnet(ctx.coldkey, params.netuid);
+      const stake = await getAlphaStakeOnSubnet(ctx.coldkey!, params.netuid);
       if (stake >= minAmount) return true;
     } catch (err) {
       console.warn(
@@ -19,7 +19,7 @@ export const holderHandler: ScopeHandler = {
       );
     }
     return await checkBalanceViaTaostatsApi(
-      ctx.coldkey,
+      ctx.coldkey!,
       params.netuid,
       minAmount,
     );

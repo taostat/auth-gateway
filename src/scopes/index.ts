@@ -10,8 +10,9 @@ import { taoStringToRao } from '../taostats/client';
 import { config } from '../config';
 import { AuthError, InvalidScopeFormatError, ScopeError } from '../util/errors';
 import { SignerContext } from './signerContext';
+import { SignMethod } from '../crypto/address';
 
-export { type SignerContext, resolveSignerContext } from './signerContext';
+export { type SignerContext, resolveSignerContext, resolveEvmSignerContext } from './signerContext';
 
 // Amount pattern: whole number or decimal (e.g. 100, 0.01, 1.5)
 const AMT = '\\d+(?:\\.\\d+)?';
@@ -264,5 +265,24 @@ export async function verifyScopes(
     if (!handler) throw new InvalidScopeFormatError(scope);
     const result = await handler.verify(ctx, params);
     if (!result) throw new ScopeError(scope);
+  }
+}
+
+/** EVM signers can only use openid; sr25519 can use all scopes. */
+const EVM_ALLOWED_SCOPES = new Set(['openid']);
+
+export function validateScopesForSignMethod(
+  scopes: string[],
+  method: SignMethod,
+): void {
+  if (method !== 'evm') return;
+  for (const scope of scopes) {
+    if (!EVM_ALLOWED_SCOPES.has(scope)) {
+      throw new AuthError(
+        `Scope "${scope}" is not available for EVM wallets`,
+        400,
+        'Bad Request',
+      );
+    }
   }
 }

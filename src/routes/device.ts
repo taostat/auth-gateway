@@ -3,7 +3,8 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { createChallenge, consumeChallenge } from '../crypto/challenge';
 import { verifySignatureOrThrow } from '../crypto/signature';
-import { verifyScopes, validateScopes, describeScopes, enforceClientScopes, resolveSignerContext } from '../scopes';
+import { validateAndNormalizeAddress, getClientSignMethod } from '../crypto/address';
+import { verifyScopes, validateScopes, validateScopesForSignMethod, describeScopes, enforceClientScopes, resolveSignerContext, resolveEvmSignerContext } from '../scopes';
 import { getClientById } from '../db/clients';
 import {
   createDeviceCode as dbCreateDeviceCode,
@@ -12,13 +13,13 @@ import {
   cleanupExpiredDeviceCodes as dbCleanupExpired,
   clearDeviceCodes as dbClearDeviceCodes,
 } from '../db/deviceCodes';
-import { AuthError, DeviceCodeError, InvalidAddressError, InvalidClientError } from '../util/errors';
+import { AuthError, DeviceCodeError, InvalidClientError } from '../util/errors';
 import { config } from '../config';
 import { DeviceCodeResponse } from '../types';
-import { escapeHtml, walletBannerHtml, checkWalletScript, authHeaderHtml, poweredByHtml, starryBackgroundHtml } from '../util/html';
+import { escapeHtml, walletBannerHtml, mobileDetectScript, checkWalletScript, checkEthereumWalletScript, ethereumBannerHtml, authHeaderHtml, poweredByHtml, starryBackgroundHtml } from '../util/html';
 import { cssLinks } from '../styles';
 import { testnetBannerHtml } from '../util/testnet';
-import { isValidSS58, applyHtmlSecurityHeaders, generateNonce } from './oauth/shared';
+import { applyHtmlSecurityHeaders, generateNonce } from './oauth/shared';
 import {
   DeviceCodeBodySchema,
   UserCodeQuerySchema,
@@ -115,6 +116,8 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
       throw new AuthError('Device code grant not allowed for this client', 400, 'Bad Request');
     }
 
+    validateScopesForSignMethod(scopes, getClientSignMethod(client.allowed_sign_methods));
+
     if (scopes.length > 0) {
       validateScopes(scopes);
       enforceClientScopes(scopes, client.allowed_scopes);
@@ -154,9 +157,11 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
 
     const found = await getDeviceCodeByUserCode(user_code);
     if (found) {
+      const deviceClient = await getClientById(found.clientId);
       return reply.code(200).send({
         scopes: found.scopes,
         descriptions: describeScopes(found.scopes),
+        sign_method: getClientSignMethod(deviceClient?.allowed_sign_methods),
       });
     }
 
@@ -189,6 +194,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
   ${testnetBannerHtml()}
   ${authHeaderHtml}
   ${walletBannerHtml()}
+  ${ethereumBannerHtml()}
   <div class="auth-card">
     <h1>Device Authorization</h1>
     <p style="margin-bottom:1rem;color:var(--text-secondary);font-size:0.95rem;">Enter the code shown on your device:</p>
@@ -232,8 +238,11 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
     let cliNonce = null;
     let cliExpiryTimer = null;
     let loadedScopes = [];
+    let loadedSignMethod = 'sr25519';
 
+    ${mobileDetectScript()}
     ${checkWalletScript()}
+    ${checkEthereumWalletScript()}
 
     // Auto-load scopes if user_code is pre-filled
     if (document.getElementById('user-code').value.trim()) {
@@ -263,6 +272,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
         if (!res.ok) return;
         const data = await res.json();
         loadedScopes = data.scopes || [];
+        loadedSignMethod = data.sign_method || 'sr25519';
         const box = document.getElementById('scopes-box');
         const list = document.getElementById('scopes-list');
         list.innerHTML = '';
@@ -281,6 +291,23 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
             list.appendChild(div);
           });
           box.style.display = 'block';
+        }
+
+        // Update UI based on sign method
+        var btn = document.getElementById('btn-authorize');
+        var cliLink = document.getElementById('link-show-cli');
+        if (loadedSignMethod === 'evm') {
+          if (btn) { btn.textContent = 'Sign with MetaMask'; btn.disabled = !window.ethereum; }
+          if (cliLink) cliLink.style.display = 'none';
+          var ethBanner = document.getElementById('eth-banner');
+          var walletBanner = document.getElementById('wallet-banner');
+          if (!window.ethereum && ethBanner) ethBanner.style.display = 'flex';
+          if (walletBanner) walletBanner.style.display = 'none';
+        } else {
+          if (btn) { btn.textContent = 'Sign with browser wallet'; btn.disabled = false; }
+          if (cliLink) cliLink.style.display = '';
+          var ethBanner2 = document.getElementById('eth-banner');
+          if (ethBanner2) ethBanner2.style.display = 'none';
         }
       } catch {}
     }
@@ -312,43 +339,73 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
       const btn = document.getElementById('btn-authorize');
       btn.disabled = true;
       btn.textContent = 'Connecting...';
+      const btnLabel = loadedSignMethod === 'evm' ? 'Sign with MetaMask' : 'Sign with browser wallet';
       try {
         const userCode = document.getElementById('user-code').value.trim().toUpperCase();
-        if (!userCode) { showError('Please enter a code'); btn.disabled = false; btn.textContent = 'Sign with browser wallet'; return; }
+        if (!userCode) { showError('Please enter a code'); btn.disabled = false; btn.textContent = btnLabel; return; }
 
-        const { web3Enable, web3Accounts, web3FromAddress } = await import('/static/extension-dapp.js');
-        const extensions = await web3Enable('Taostats Auth');
-        if (extensions.length === 0) { showError('No wallet extension found. Install the Taostats Wallet to sign with your browser.'); btn.disabled = false; btn.textContent = 'Sign with browser wallet'; return; }
-        const accounts = await web3Accounts();
-        if (accounts.length === 0) { showError('No accounts found'); btn.disabled = false; btn.textContent = 'Sign with browser wallet'; return; }
+        var address, signature, nonce;
 
-        let address;
-        if (accounts.length > 1) {
-          address = await pickAccount(accounts);
+        if (loadedSignMethod === 'evm') {
+          // MetaMask flow
+          if (!window.ethereum) { showError('No Ethereum wallet found. Install MetaMask.'); btn.disabled = false; btn.textContent = btnLabel; return; }
+          var ethAccounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+          if (!ethAccounts || ethAccounts.length === 0) { showError('No accounts found'); btn.disabled = false; btn.textContent = btnLabel; return; }
+
+          if (ethAccounts.length > 1) {
+            address = await pickAccount(ethAccounts.map(function(a) { return { address: a, meta: { name: '' } }; }));
+          } else {
+            address = ethAccounts[0];
+          }
+
+          btn.textContent = 'Signing...';
+
+          var approveRes = await fetch('/v1/device/approve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_code: userCode, address: address }),
+          });
+          if (!approveRes.ok) { var e1 = await approveRes.json(); throw new Error(e1.message); }
+          var approveData = await approveRes.json();
+          nonce = approveData.nonce;
+
+          signature = await window.ethereum.request({
+            method: 'personal_sign',
+            params: [nonce, address],
+          });
         } else {
-          address = accounts[0].address;
+          // Taostats wallet flow
+          const { web3Enable, web3Accounts, web3FromAddress } = await import('/static/extension-dapp.js');
+          const extensions = await web3Enable('Taostats Auth');
+          if (extensions.length === 0) { showError('No wallet extension found. Install the Taostats Wallet to sign with your browser.'); btn.disabled = false; btn.textContent = btnLabel; return; }
+          var polkaAccounts = await web3Accounts();
+          if (polkaAccounts.length === 0) { showError('No accounts found'); btn.disabled = false; btn.textContent = btnLabel; return; }
+
+          if (polkaAccounts.length > 1) {
+            address = await pickAccount(polkaAccounts);
+          } else {
+            address = polkaAccounts[0].address;
+          }
+
+          btn.textContent = 'Signing...';
+
+          var res = await fetch('/v1/device/approve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_code: userCode, address: address }),
+          });
+          if (!res.ok) { var e2 = await res.json(); throw new Error(e2.message); }
+          var resData = await res.json();
+          nonce = resData.nonce;
+
+          var injector = await web3FromAddress(address);
+          var sigResult = await injector.signer.signRaw({
+            address: address,
+            data: nonce,
+            type: 'bytes',
+          });
+          signature = sigResult.signature;
         }
-
-        btn.textContent = 'Signing...';
-
-        // Approve device code
-        const res = await fetch('/v1/device/approve', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_code: userCode, address }),
-        });
-
-        if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
-
-        const { nonce } = await res.json();
-
-        // Sign the challenge
-        const injector = await web3FromAddress(address);
-        const { signature } = await injector.signer.signRaw({
-          address,
-          data: nonce,
-          type: 'bytes',
-        });
 
         btn.textContent = 'Verifying...';
 
@@ -356,16 +413,16 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
         const confirmRes = await fetch('/v1/device/confirm', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_code: userCode, address, nonce, signature }),
+          body: JSON.stringify({ user_code: userCode, address: address, nonce: nonce, signature: signature }),
         });
 
-        if (!confirmRes.ok) { const e = await confirmRes.json(); throw new Error(e.message); }
+        if (!confirmRes.ok) { const e3 = await confirmRes.json(); throw new Error(e3.message); }
 
         showSuccess('Device authorized! You can close this window.');
       } catch (err) {
         showError(err.message);
         btn.disabled = false;
-        btn.textContent = 'Sign with browser wallet';
+        btn.textContent = btnLabel;
       }
     }
 
@@ -501,16 +558,21 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
   }, async (request: FastifyRequest<{
     Body: z.infer<typeof DeviceApproveBodySchema>;
   }>, reply: FastifyReply) => {
-    const { user_code, address } = request.body;
-
-    if (!isValidSS58(address)) {
-      throw new InvalidAddressError();
-    }
+    const { user_code, address: rawAddress } = request.body;
 
     const found = await getDeviceCodeByUserCode(user_code);
 
     if (!found) {
       throw new DeviceCodeError('Invalid or expired user code', 404);
+    }
+
+    // Look up client to determine sign method
+    const approveClient = await getClientById(found.clientId);
+    const clientMethod = getClientSignMethod(approveClient?.allowed_sign_methods);
+    const { address, method } = validateAndNormalizeAddress(rawAddress);
+
+    if (method !== clientMethod) {
+      throw new AuthError(`This client requires ${clientMethod} wallet signing`, 400, 'Bad Request');
     }
 
     if (new Date() > found.expiresAt) {
@@ -538,11 +600,9 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
   }, async (request: FastifyRequest<{
     Body: z.infer<typeof DeviceConfirmBodySchema>;
   }>, reply: FastifyReply) => {
-    const { user_code, address, nonce, signature } = request.body;
+    const { user_code, address: rawAddress, nonce, signature } = request.body;
 
-    if (!isValidSS58(address)) {
-      throw new InvalidAddressError();
-    }
+    const { address, method } = validateAndNormalizeAddress(rawAddress);
 
     const found = await getDeviceCodeByUserCode(user_code);
 
@@ -550,19 +610,29 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
       throw new DeviceCodeError('Invalid or expired user code', 404);
     }
 
-    // Consume challenge and verify signature
+    // Enforce client sign method
+    const confirmClient = await getClientById(found.clientId);
+    const confirmMethod = getClientSignMethod(confirmClient?.allowed_sign_methods);
+    if (method !== confirmMethod) {
+      throw new AuthError(`This client requires ${confirmMethod} wallet signing`, 400, 'Bad Request');
+    }
+
+    // Consume challenge and verify signature (method-aware)
     const challenge = await consumeChallenge(nonce);
 
     if (challenge.address && challenge.address !== address) {
       throw new AuthError('Address mismatch', 401, 'Unauthorized');
     }
 
-    verifySignatureOrThrow(nonce, signature, address);
+    await verifySignatureOrThrow(nonce, signature, address, method);
 
-    // Resolve signer context and verify scopes
-    const signerCtx = await resolveSignerContext(address);
-    if (found.scopes.length > 0) {
-      await verifyScopes(signerCtx, found.scopes);
+    // Resolve signer context and verify scopes (skip for EVM)
+    const isEvm = method === 'evm';
+    if (!isEvm) {
+      const signerCtx = await resolveSignerContext(address);
+      if (found.scopes.length > 0) {
+        await verifyScopes(signerCtx, found.scopes);
+      }
     }
 
     // Mark as approved in DB

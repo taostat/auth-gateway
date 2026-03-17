@@ -31,6 +31,7 @@ export interface JwtClaims {
   epoch?: number | undefined;
   hotkey?: string | null | undefined;
   coldkey?: string | null | undefined;
+  evm_address?: string | null | undefined;
 }
 
 export interface DeviceCodeEntry {
@@ -56,6 +57,7 @@ export interface OAuthClient {
   grant_types: string[];
   allowed_scopes: string[];
   allowed_origins: string[];
+  allowed_sign_methods: string[];
   rate_limit: number;
   active: boolean;
   created_at: Date;
