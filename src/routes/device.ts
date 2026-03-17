@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { createChallenge, consumeChallenge } from '../crypto/challenge';
 import { verifySignatureOrThrow } from '../crypto/signature';
 import { validateAndNormalizeAddress, getClientSignMethod } from '../crypto/address';
-import { verifyScopes, validateScopes, validateScopesForSignMethod, describeScopes, enforceClientScopes, resolveSignerContext, resolveEvmSignerContext } from '../scopes';
+import { verifyScopes, validateScopes, validateScopesForSignMethod, describeScopes, enforceClientScopes, resolveSignerContext } from '../scopes';
 import { getClientById } from '../db/clients';
 import {
   createDeviceCode as dbCreateDeviceCode,
