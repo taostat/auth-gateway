@@ -5,7 +5,7 @@ import { verifySignatureOrThrow } from '../../crypto/signature';
 import { createAuthCode } from '../../crypto/jwt';
 import { validateCodeChallenge } from '../../crypto/pkce';
 import { validateAndNormalizeAddress, getClientSignMethod } from '../../crypto/address';
-import { verifyScopes, validateScopes, validateScopesForSignMethod, describeScopes, enforceClientScopes, resolveSignerContext, resolveEvmSignerContext } from '../../scopes';
+import { verifyScopes, validateScopes, describeScopes, enforceClientScopes, resolveSignerContext, resolveEvmSignerContext } from '../../scopes';
 import { getClientById } from '../../db/clients';
 import { AuthError } from '../../util/errors';
 import { config } from '../../config';
