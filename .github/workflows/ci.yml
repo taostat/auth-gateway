@@ -32,8 +32,8 @@ jobs:
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci
 
-      - name: Type check + Lint
-        run: npm run typecheck & npm run lint & wait
+      - name: Type check + Lint + Format
+        run: npm run typecheck & npm run lint & npm run format:check & wait
 
       - name: Audit dependencies
         run: npm audit --audit-level=moderate

@@ -17,19 +17,13 @@ export const delegateHandler: ScopeHandler = {
 
     let result;
     try {
-      result = await taostatsGet<StakeBalanceEntry>(
-        '/api/dtao/stake_balance/latest/v1',
-        {
-          coldkey: ctx.coldkey!,
-          hotkey: params.hotkey,
-          limit: '100',
-        },
-      );
+      result = await taostatsGet<StakeBalanceEntry>('/api/dtao/stake_balance/latest/v1', {
+        coldkey: ctx.coldkey!,
+        hotkey: params.hotkey,
+        limit: '100',
+      });
     } catch (err) {
-      console.warn(
-        `Delegate scope check failed for ${ctx.coldkey} -> ${params.hotkey}:`,
-        err,
-      );
+      console.warn(`Delegate scope check failed for ${ctx.coldkey} -> ${params.hotkey}:`, err);
       return false;
     }
 

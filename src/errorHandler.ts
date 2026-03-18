@@ -10,9 +10,7 @@ interface ErrorHandlerOptions {
 export function createErrorHandler(opts: ErrorHandlerOptions) {
   return (error: FastifyError, request: FastifyRequest, reply: FastifyReply) => {
     if (hasZodFastifySchemaValidationErrors(error)) {
-      const issues = error.validation
-        .map((v) => v.message)
-        .join('; ');
+      const issues = error.validation.map((v) => v.message).join('; ');
       return reply.code(400).send({
         statusCode: 400,
         error: 'Bad Request',
@@ -41,9 +39,7 @@ export function createErrorHandler(opts: ErrorHandlerOptions) {
       request.log.error(error);
     }
 
-    const message = opts.hideInternalErrors
-      ? 'An unexpected error occurred'
-      : error.message;
+    const message = opts.hideInternalErrors ? 'An unexpected error occurred' : error.message;
 
     const statusCode = error.statusCode || 500;
     return reply.code(statusCode).send({

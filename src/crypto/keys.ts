@@ -15,7 +15,9 @@ export function loadKeys(): { privateKey: string; publicKey: string } {
     privateKey = fs.readFileSync(config.rsaPrivateKeyPath, 'utf-8');
     publicKey = fs.readFileSync(config.rsaPublicKeyPath, 'utf-8');
   } else {
-    throw new Error('RSA keys not configured. Set RSA_PRIVATE_KEY_BASE64/RSA_PUBLIC_KEY_BASE64 or RSA_PRIVATE_KEY_PATH/RSA_PUBLIC_KEY_PATH');
+    throw new Error(
+      'RSA keys not configured. Set RSA_PRIVATE_KEY_BASE64/RSA_PUBLIC_KEY_BASE64 or RSA_PRIVATE_KEY_PATH/RSA_PUBLIC_KEY_PATH',
+    );
   }
   return { privateKey, publicKey };
 }

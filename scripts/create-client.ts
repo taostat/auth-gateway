@@ -57,7 +57,11 @@ async function main() {
 
   if (!name) {
     console.error(red('Error: --name is required'));
-    console.log(dim('Usage: npx tsx scripts/create-client.ts --name "My App" --type confidential --redirect-uri http://localhost:3001/callback'));
+    console.log(
+      dim(
+        'Usage: npx tsx scripts/create-client.ts --name "My App" --type confidential --redirect-uri http://localhost:3001/callback',
+      ),
+    );
     process.exit(1);
   }
 
@@ -86,10 +90,14 @@ async function main() {
     if (type === 'confidential') {
       plainSecret = crypto.randomBytes(32).toString('hex');
       const salt = crypto.randomBytes(16);
-      const N = 16384, r = 8, p = 1, keylen = 64;
+      const N = 16384,
+        r = 8,
+        p = 1,
+        keylen = 64;
       const derived = await new Promise<Buffer>((resolve, reject) => {
         crypto.scrypt(plainSecret!, salt, keylen, { N, r, p }, (err, key) => {
-          if (err) reject(err); else resolve(key as Buffer);
+          if (err) reject(err);
+          else resolve(key as Buffer);
         });
       });
       secretHash = `scrypt$${N}$${r}$${p}$${salt.toString('base64url')}$${derived.toString('base64url')}`;

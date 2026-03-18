@@ -1,5 +1,14 @@
 import { cryptoWaitReady } from '@polkadot/util-crypto';
-import { setupMockDb, createTestClient, createPublicTestClient, addTestClient, clearTestClients, clearTestRefreshTokens, TEST_CLIENT_ID, TEST_CLIENT_SECRET } from '../helpers/mockDb';
+import {
+  setupMockDb,
+  createTestClient,
+  createPublicTestClient,
+  addTestClient,
+  clearTestClients,
+  clearTestRefreshTokens,
+  TEST_CLIENT_ID,
+  TEST_CLIENT_SECRET,
+} from '../helpers/mockDb';
 import { createMockApi, MockChainBuilder } from '../helpers/mockSubtensor';
 
 // Setup mocks BEFORE other imports
@@ -131,7 +140,13 @@ describe('OAuth Routes', () => {
       const callbackRes = await app.inject({
         method: 'POST',
         url: '/v1/oauth/callback',
-        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+        payload: {
+          nonce,
+          address,
+          signature,
+          client_id: TEST_CLIENT_ID,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
       });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
@@ -248,7 +263,9 @@ describe('OAuth Routes', () => {
         method: 'POST',
         url: '/v1/oauth/callback',
         payload: {
-          nonce, address, signature,
+          nonce,
+          address,
+          signature,
           client_id: 'public-test-client',
           redirect_uri: 'http://localhost:3001/callback',
           code_challenge: codeChallenge,
@@ -288,7 +305,13 @@ describe('OAuth Routes', () => {
       const callbackRes = await app.inject({
         method: 'POST',
         url: '/v1/oauth/callback',
-        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+        payload: {
+          nonce,
+          address,
+          signature,
+          client_id: TEST_CLIENT_ID,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
       });
       const { code } = JSON.parse(callbackRes.payload);
 
@@ -355,12 +378,14 @@ describe('OAuth Routes', () => {
       const address = await getAliceAddress();
 
       // Register a client that allows the scope
-      addTestClient(createTestClient({
-        client_id: 'scoped-client',
-        client_name: 'Scoped App',
-        allowed_scopes: ['subnet:1:miner'],
-        redirect_uris: ['http://localhost:3001/callback'],
-      }));
+      addTestClient(
+        createTestClient({
+          client_id: 'scoped-client',
+          client_name: 'Scoped App',
+          allowed_scopes: ['subnet:1:miner'],
+          redirect_uris: ['http://localhost:3001/callback'],
+        }),
+      );
 
       // Full flow: challenge -> sign -> callback -> token exchange -> refresh
       const challengeRes = await app.inject({
@@ -374,7 +399,13 @@ describe('OAuth Routes', () => {
       const callbackRes = await app.inject({
         method: 'POST',
         url: '/v1/oauth/callback',
-        payload: { nonce, address, signature, client_id: 'scoped-client', redirect_uri: 'http://localhost:3001/callback' },
+        payload: {
+          nonce,
+          address,
+          signature,
+          client_id: 'scoped-client',
+          redirect_uri: 'http://localhost:3001/callback',
+        },
       });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
@@ -414,12 +445,14 @@ describe('OAuth Routes', () => {
     test('refresh rejects with 403 when address loses on-chain role', async () => {
       const address = await getAliceAddress();
 
-      addTestClient(createTestClient({
-        client_id: 'scoped-client-2',
-        client_name: 'Scoped App 2',
-        allowed_scopes: ['subnet:1:miner'],
-        redirect_uris: ['http://localhost:3001/callback'],
-      }));
+      addTestClient(
+        createTestClient({
+          client_id: 'scoped-client-2',
+          client_name: 'Scoped App 2',
+          allowed_scopes: ['subnet:1:miner'],
+          redirect_uris: ['http://localhost:3001/callback'],
+        }),
+      );
 
       // Full flow to get refresh token
       const challengeRes = await app.inject({
@@ -433,7 +466,13 @@ describe('OAuth Routes', () => {
       const callbackRes = await app.inject({
         method: 'POST',
         url: '/v1/oauth/callback',
-        payload: { nonce, address, signature, client_id: 'scoped-client-2', redirect_uri: 'http://localhost:3001/callback' },
+        payload: {
+          nonce,
+          address,
+          signature,
+          client_id: 'scoped-client-2',
+          redirect_uri: 'http://localhost:3001/callback',
+        },
       });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
@@ -497,7 +536,13 @@ describe('OAuth Routes', () => {
       const callbackRes = await app.inject({
         method: 'POST',
         url: '/v1/oauth/callback',
-        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+        payload: {
+          nonce,
+          address,
+          signature,
+          client_id: TEST_CLIENT_ID,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
       });
       const { code } = JSON.parse(callbackRes.payload);
 
@@ -549,7 +594,13 @@ describe('OAuth Routes', () => {
       const callbackRes = await app.inject({
         method: 'POST',
         url: '/v1/oauth/callback',
-        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+        payload: {
+          nonce,
+          address,
+          signature,
+          client_id: TEST_CLIENT_ID,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
       });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
@@ -600,7 +651,13 @@ describe('OAuth Routes', () => {
       const callbackRes = await app.inject({
         method: 'POST',
         url: '/v1/oauth/callback',
-        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+        payload: {
+          nonce,
+          address,
+          signature,
+          client_id: TEST_CLIENT_ID,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
       });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
@@ -640,7 +697,9 @@ describe('OAuth Routes', () => {
         method: 'POST',
         url: '/v1/oauth/callback',
         payload: {
-          nonce, address, signature,
+          nonce,
+          address,
+          signature,
           client_id: 'public-test-client',
           redirect_uri: 'http://localhost:3001/callback',
           code_challenge: codeChallenge,
@@ -694,7 +753,13 @@ describe('OAuth Routes', () => {
       const callbackRes = await app.inject({
         method: 'POST',
         url: '/v1/oauth/callback',
-        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+        payload: {
+          nonce,
+          address,
+          signature,
+          client_id: TEST_CLIENT_ID,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
       });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
@@ -745,7 +810,13 @@ describe('OAuth Routes', () => {
       const callbackRes = await app.inject({
         method: 'POST',
         url: '/v1/oauth/callback',
-        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+        payload: {
+          nonce,
+          address,
+          signature,
+          client_id: TEST_CLIENT_ID,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
       });
       const { code } = JSON.parse(callbackRes.payload);
 
@@ -764,11 +835,13 @@ describe('OAuth Routes', () => {
       const { refresh_token } = JSON.parse(tokenRes.payload);
 
       // Register a second client
-      addTestClient(createTestClient({
-        client_id: 'other-client',
-        client_name: 'Other App',
-        redirect_uris: ['http://localhost:3001/callback'],
-      }));
+      addTestClient(
+        createTestClient({
+          client_id: 'other-client',
+          client_name: 'Other App',
+          redirect_uris: ['http://localhost:3001/callback'],
+        }),
+      );
 
       // Try to use the refresh token with the other client
       const refreshRes = await app.inject({
@@ -801,17 +874,25 @@ describe('OAuth Routes', () => {
       const callbackRes = await app.inject({
         method: 'POST',
         url: '/v1/oauth/callback',
-        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+        payload: {
+          nonce,
+          address,
+          signature,
+          client_id: TEST_CLIENT_ID,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
       });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
 
       // Register a second client
-      addTestClient(createTestClient({
-        client_id: 'other-client',
-        client_name: 'Other App',
-        redirect_uris: ['http://localhost:3001/callback'],
-      }));
+      addTestClient(
+        createTestClient({
+          client_id: 'other-client',
+          client_name: 'Other App',
+          redirect_uris: ['http://localhost:3001/callback'],
+        }),
+      );
 
       // Try to exchange the auth code with the other client
       const tokenRes = await app.inject({
@@ -848,7 +929,9 @@ describe('OAuth Routes', () => {
         method: 'POST',
         url: '/v1/oauth/callback',
         payload: {
-          nonce, address, signature,
+          nonce,
+          address,
+          signature,
           client_id: TEST_CLIENT_ID,
           redirect_uri: 'http://localhost:3001/callback',
           code_challenge: codeChallenge,
@@ -892,7 +975,13 @@ describe('OAuth Routes', () => {
       const callbackRes = await app.inject({
         method: 'POST',
         url: '/v1/oauth/callback',
-        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+        payload: {
+          nonce,
+          address,
+          signature,
+          client_id: TEST_CLIENT_ID,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
       });
       const { code } = JSON.parse(callbackRes.payload);
 
@@ -958,7 +1047,13 @@ describe('OAuth Routes', () => {
       const callbackRes = await app.inject({
         method: 'POST',
         url: '/v1/oauth/callback',
-        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback' },
+        payload: {
+          nonce,
+          address,
+          signature,
+          client_id: TEST_CLIENT_ID,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
       });
       const { code } = JSON.parse(callbackRes.payload);
 
@@ -989,7 +1084,7 @@ describe('OAuth Routes', () => {
         app.inject({ method: 'POST', url: '/v1/oauth/refresh', payload: refreshPayload }),
       ]);
 
-      const statuses = [res1.statusCode, res2.statusCode].sort();
+      const statuses = [res1.statusCode, res2.statusCode].toSorted();
       // Exactly one should succeed (200) and one should fail (401)
       expect(statuses).toEqual([200, 401]);
 
@@ -1009,17 +1104,30 @@ describe('OAuth Routes', () => {
   });
 
   describe('ID token issuance', () => {
-    async function getTokensViaAuthCode(opts: { scopes?: string[]; extraCallbackFields?: Record<string, string> } = {}): Promise<Record<string, unknown>> {
+    async function getTokensViaAuthCode(
+      opts: { scopes?: string[]; extraCallbackFields?: Record<string, string> } = {},
+    ): Promise<Record<string, unknown>> {
       const scopes = opts.scopes ?? ['openid'];
       const address = await getAliceAddress();
-      const challengeRes = await app.inject({ method: 'POST', url: '/v1/auth/challenge', payload: { address, scopes } });
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/challenge',
+        payload: { address, scopes },
+      });
       const { nonce } = JSON.parse(challengeRes.payload);
       const signature = await signWithAlice(nonce);
 
       const callbackRes = await app.inject({
         method: 'POST',
         url: '/v1/oauth/callback',
-        payload: { nonce, address, signature, client_id: TEST_CLIENT_ID, redirect_uri: 'http://localhost:3001/callback', ...(opts.extraCallbackFields ?? {}) },
+        payload: {
+          nonce,
+          address,
+          signature,
+          client_id: TEST_CLIENT_ID,
+          redirect_uri: 'http://localhost:3001/callback',
+          ...opts.extraCallbackFields,
+        },
       });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
@@ -1027,7 +1135,13 @@ describe('OAuth Routes', () => {
       const tokenRes = await app.inject({
         method: 'POST',
         url: '/v1/oauth/token',
-        payload: { grant_type: 'authorization_code', code, client_id: TEST_CLIENT_ID, client_secret: TEST_CLIENT_SECRET, redirect_uri: 'http://localhost:3001/callback' },
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
       });
       expect(tokenRes.statusCode).toBe(200);
       return JSON.parse(tokenRes.payload);
@@ -1086,7 +1200,12 @@ describe('OAuth Routes', () => {
       const refreshRes = await app.inject({
         method: 'POST',
         url: '/v1/oauth/token',
-        payload: { grant_type: 'refresh_token', refresh_token: body.refresh_token, client_id: TEST_CLIENT_ID, client_secret: TEST_CLIENT_SECRET },
+        payload: {
+          grant_type: 'refresh_token',
+          refresh_token: body.refresh_token,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+        },
       });
       expect(refreshRes.statusCode).toBe(200);
       const refreshBody = JSON.parse(refreshRes.payload);
@@ -1103,12 +1222,14 @@ describe('OAuth Routes', () => {
 
   describe('allowed_scopes enforcement', () => {
     test('rejects scopes not in client allowed_scopes on authorize', async () => {
-      addTestClient(createTestClient({
-        client_id: 'restricted-client',
-        client_name: 'Restricted',
-        allowed_scopes: ['subnet:1:miner'],
-        redirect_uris: ['http://localhost:3001/callback'],
-      }));
+      addTestClient(
+        createTestClient({
+          client_id: 'restricted-client',
+          client_name: 'Restricted',
+          allowed_scopes: ['subnet:1:miner'],
+          redirect_uris: ['http://localhost:3001/callback'],
+        }),
+      );
 
       const res = await app.inject({
         method: 'GET',
@@ -1119,12 +1240,14 @@ describe('OAuth Routes', () => {
     });
 
     test('allows scopes within client allowed_scopes', async () => {
-      addTestClient(createTestClient({
-        client_id: 'restricted-client-2',
-        client_name: 'Restricted 2',
-        allowed_scopes: ['subnet:1:miner'],
-        redirect_uris: ['http://localhost:3001/callback'],
-      }));
+      addTestClient(
+        createTestClient({
+          client_id: 'restricted-client-2',
+          client_name: 'Restricted 2',
+          allowed_scopes: ['subnet:1:miner'],
+          redirect_uris: ['http://localhost:3001/callback'],
+        }),
+      );
 
       const res = await app.inject({
         method: 'GET',

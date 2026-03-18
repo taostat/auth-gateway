@@ -1,9 +1,4 @@
-import {
-  detectSignMethod,
-  isValidEvmAddress,
-  normalizeEvmAddress,
-  isValidAddress,
-} from '../../crypto/address';
+import { detectSignMethod, isValidEvmAddress, normalizeEvmAddress, isValidAddress } from '../../crypto/address';
 
 describe('Address Utilities', () => {
   const VALID_EVM = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';

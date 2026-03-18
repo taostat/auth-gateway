@@ -27,7 +27,6 @@ const DELEGATE_SCOPE_REGEX = new RegExp(`^delegate:(5[1-9A-HJ-NP-Za-km-z]{47})(?
 // staker:{min_tao}
 const STAKER_SCOPE_REGEX = new RegExp(`^staker:(${AMT})$`);
 const METADATA_SCOPES = new Set(['openid']);
-const TAOSTATS_SCOPE_TYPES = new Set(['delegate', 'staker']);
 
 const RAO_PER_UNIT = BigInt(1e9);
 
@@ -113,12 +112,14 @@ export function parseScope(scope: string): ParsedScope {
 }
 
 export function validateScopeFormat(scope: string): boolean {
-  return METADATA_SCOPES.has(scope)
-    || SUBNET_ROLE_REGEX.test(scope)
-    || SUBNET_HOLDER_REGEX.test(scope)
-    || TAO_SCOPE_REGEX.test(scope)
-    || DELEGATE_SCOPE_REGEX.test(scope)
-    || STAKER_SCOPE_REGEX.test(scope);
+  return (
+    METADATA_SCOPES.has(scope) ||
+    SUBNET_ROLE_REGEX.test(scope) ||
+    SUBNET_HOLDER_REGEX.test(scope) ||
+    TAO_SCOPE_REGEX.test(scope) ||
+    DELEGATE_SCOPE_REGEX.test(scope) ||
+    STAKER_SCOPE_REGEX.test(scope)
+  );
 }
 
 export function validateScopes(scopes: string[]): void {
@@ -127,11 +128,7 @@ export function validateScopes(scopes: string[]): void {
       throw new InvalidScopeFormatError(scope);
     }
     if (config.isTestnet && isTaostatsScope(scope)) {
-      throw new AuthError(
-        `Scope "${scope}" requires Taostats API (mainnet only)`,
-        400,
-        'Bad Request',
-      );
+      throw new AuthError(`Scope "${scope}" requires Taostats API (mainnet only)`, 400, 'Bad Request');
     }
   }
 }
@@ -158,24 +155,18 @@ export function describeScope(scope: string): string {
 
     if (p.type === 'subnet') {
       const role = roleDescriptions[p.role] || p.role;
-      const suffix = p.minAmount !== undefined
-        ? ` (min ${raoToDisplay(p.minAmount)} alpha)`
-        : '';
+      const suffix = p.minAmount !== undefined ? ` (min ${raoToDisplay(p.minAmount)} alpha)` : '';
       return `${role} on Subnet ${p.netuid}${suffix}`;
     }
 
     if (p.type === 'tao') {
-      const suffix = p.minAmount !== undefined
-        ? ` (min ${raoToDisplay(p.minAmount)} TAO)`
-        : '';
+      const suffix = p.minAmount !== undefined ? ` (min ${raoToDisplay(p.minAmount)} TAO)` : '';
       return `TAO Holder${suffix}`;
     }
 
     if (p.type === 'delegate' && p.hotkey) {
       const short = `${p.hotkey.slice(0, 8)}...${p.hotkey.slice(-6)}`;
-      const suffix = p.minAmount !== undefined
-        ? ` (min ${raoToDisplay(p.minAmount)} TAO)`
-        : '';
+      const suffix = p.minAmount !== undefined ? ` (min ${raoToDisplay(p.minAmount)} TAO)` : '';
       return `Delegator to ${short}${suffix}`;
     }
 
@@ -204,10 +195,7 @@ export function describeScopes(scopes: string[]): string[] {
  * scope without the amount in allowed_scopes permits any amount.
  * Staker scopes must be listed explicitly (no base form exists).
  */
-export function enforceClientScopes(
-  requestedScopes: string[],
-  allowedScopes: string[],
-): void {
+export function enforceClientScopes(requestedScopes: string[], allowedScopes: string[]): void {
   if (allowedScopes.length === 0) return;
   for (const scope of requestedScopes) {
     if (METADATA_SCOPES.has(scope)) continue;
@@ -226,11 +214,7 @@ export function enforceClientScopes(
       if (baseScope && allowedScopes.includes(baseScope)) continue;
     }
 
-    throw new AuthError(
-      `Scope "${scope}" is not allowed for this client`,
-      403,
-      'Forbidden',
-    );
+    throw new AuthError(`Scope "${scope}" is not allowed for this client`, 403, 'Forbidden');
   }
 }
 
@@ -244,10 +228,7 @@ const handlerMap: Record<string, ScopeHandler> = {
  * Verify all scopes using a resolved signer context.
  * Throws ScopeError (403) if ANY scope fails.
  */
-export async function verifyScopes(
-  ctx: SignerContext,
-  scopes: string[],
-): Promise<void> {
+export async function verifyScopes(ctx: SignerContext, scopes: string[]): Promise<void> {
   for (const scope of scopes) {
     if (METADATA_SCOPES.has(scope)) continue;
 
@@ -258,9 +239,7 @@ export async function verifyScopes(
       hotkey: parsed.hotkey,
     };
 
-    const handler = parsed.type === 'subnet'
-      ? subnetHandlers[parsed.role]
-      : handlerMap[parsed.type];
+    const handler = parsed.type === 'subnet' ? subnetHandlers[parsed.role] : handlerMap[parsed.type];
 
     if (!handler) throw new InvalidScopeFormatError(scope);
     const result = await handler.verify(ctx, params);
@@ -271,18 +250,11 @@ export async function verifyScopes(
 /** EVM signers can only use openid; sr25519 can use all scopes. */
 const EVM_ALLOWED_SCOPES = new Set(['openid']);
 
-export function validateScopesForSignMethod(
-  scopes: string[],
-  method: SignMethod,
-): void {
+export function validateScopesForSignMethod(scopes: string[], method: SignMethod): void {
   if (method !== 'evm') return;
   for (const scope of scopes) {
     if (!EVM_ALLOWED_SCOPES.has(scope)) {
-      throw new AuthError(
-        `Scope "${scope}" is not available for EVM wallets`,
-        400,
-        'Bad Request',
-      );
+      throw new AuthError(`Scope "${scope}" is not available for EVM wallets`, 400, 'Bad Request');
     }
   }
 }

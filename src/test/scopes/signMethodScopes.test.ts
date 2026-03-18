@@ -14,17 +14,16 @@ describe('validateScopesForSignMethod', () => {
   });
 
   test('evm rejects subnet scopes', () => {
-    expect(() => validateScopesForSignMethod(['subnet:1:miner'], 'evm'))
-      .toThrow('not available for EVM wallets');
+    expect(() => validateScopesForSignMethod(['subnet:1:miner'], 'evm')).toThrow('not available for EVM wallets');
   });
 
   test('evm rejects tao:holder', () => {
-    expect(() => validateScopesForSignMethod(['tao:holder'], 'evm'))
-      .toThrow('not available for EVM wallets');
+    expect(() => validateScopesForSignMethod(['tao:holder'], 'evm')).toThrow('not available for EVM wallets');
   });
 
   test('evm rejects mixed scopes', () => {
-    expect(() => validateScopesForSignMethod(['openid', 'subnet:1:validator'], 'evm'))
-      .toThrow('not available for EVM wallets');
+    expect(() => validateScopesForSignMethod(['openid', 'subnet:1:validator'], 'evm')).toThrow(
+      'not available for EVM wallets',
+    );
   });
 });

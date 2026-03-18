@@ -1,5 +1,14 @@
 import { escapeHtml } from '../../util/html';
-import { setupMockDb, createTestClient, createPublicTestClient, addTestClient, clearTestClients, clearTestChallenges, clearTestDeviceCodes, TEST_CLIENT_ID } from '../helpers/mockDb';
+import {
+  setupMockDb,
+  createTestClient,
+  createPublicTestClient,
+  addTestClient,
+  clearTestClients,
+  clearTestChallenges,
+  clearTestDeviceCodes,
+  TEST_CLIENT_ID,
+} from '../helpers/mockDb';
 import { createMockApi, MockChainBuilder } from '../helpers/mockSubtensor';
 
 // Setup mocks BEFORE other imports
@@ -102,11 +111,13 @@ describe('XSS prevention in HTML pages', () => {
   });
 
   test('oauth authorize page escapes client_name', async () => {
-    addTestClient(createTestClient({
-      client_id: 'xss-client',
-      client_name: '<img src=x onerror=alert(1)>',
-      redirect_uris: ['http://localhost:3001/callback'],
-    }));
+    addTestClient(
+      createTestClient({
+        client_id: 'xss-client',
+        client_name: '<img src=x onerror=alert(1)>',
+        redirect_uris: ['http://localhost:3001/callback'],
+      }),
+    );
     const res = await app.inject({
       method: 'GET',
       url: '/v1/oauth/authorize?client_id=xss-client&redirect_uri=http://localhost:3001/callback&response_type=code',

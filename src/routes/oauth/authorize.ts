@@ -5,12 +5,30 @@ import { verifySignatureOrThrow } from '../../crypto/signature';
 import { createAuthCode } from '../../crypto/jwt';
 import { validateCodeChallenge } from '../../crypto/pkce';
 import { validateAndNormalizeAddress, getClientSignMethod } from '../../crypto/address';
-import { verifyScopes, validateScopes, describeScopes, enforceClientScopes, resolveSignerContext, resolveEvmSignerContext } from '../../scopes';
+import {
+  verifyScopes,
+  validateScopes,
+  describeScopes,
+  enforceClientScopes,
+  resolveSignerContext,
+  resolveEvmSignerContext,
+} from '../../scopes';
 import { getClientById } from '../../db/clients';
 import { AuthError } from '../../util/errors';
 import { config } from '../../config';
 import { OAuthClient } from '../../types';
-import { escapeHtml, serializeForInlineScript, walletBannerHtml, mobileDetectScript, checkWalletScript, checkEthereumWalletScript, ethereumBannerHtml, authHeaderHtml, poweredByHtml, starryBackgroundHtml } from '../../util/html';
+import {
+  escapeHtml,
+  serializeForInlineScript,
+  walletBannerHtml,
+  mobileDetectScript,
+  checkWalletScript,
+  checkEthereumWalletScript,
+  ethereumBannerHtml,
+  authHeaderHtml,
+  poweredByHtml,
+  starryBackgroundHtml,
+} from '../../util/html';
 import { applyHtmlSecurityHeaders, sendHtmlError, generateNonce } from './shared';
 import { cssLinks } from '../../styles';
 import { testnetBannerHtml } from '../../util/testnet';
@@ -18,80 +36,110 @@ import { AuthorizeQuerySchema, CallbackBodySchema } from '../../schemas/oauth';
 
 export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
   // GET /v1/oauth/authorize
-  fastify.get('/v1/oauth/authorize', {
-    schema: {
-      tags: ['OAuth'],
-      summary: 'Authorization page (browser redirect)',
-      querystring: AuthorizeQuerySchema,
+  fastify.get(
+    '/v1/oauth/authorize',
+    {
+      schema: {
+        tags: ['OAuth'],
+        summary: 'Authorization page (browser redirect)',
+        querystring: AuthorizeQuerySchema,
+      },
     },
-  }, async (request: FastifyRequest<{
-    Querystring: z.infer<typeof AuthorizeQuerySchema>;
-  }>, reply: FastifyReply) => {
-    const { client_id, redirect_uri, scope, state, response_type, code_challenge, code_challenge_method, nonce: oidcNonce } = request.query;
+    async (
+      request: FastifyRequest<{
+        Querystring: z.infer<typeof AuthorizeQuerySchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const {
+        client_id,
+        redirect_uri,
+        scope,
+        state,
+        response_type,
+        code_challenge,
+        code_challenge_method,
+        nonce: oidcNonce,
+      } = request.query;
 
-    if (!client_id || !redirect_uri) {
-      return sendHtmlError(reply, 400, 'Bad Request', 'Missing required parameters: client_id and redirect_uri');
-    }
-
-    if (response_type && response_type !== 'code') {
-      return sendHtmlError(reply, 400, 'Bad Request', 'Unsupported response_type. Only "code" is supported.');
-    }
-
-    // Validate client_id
-    let client: OAuthClient | null;
-    try {
-      client = await getClientById(client_id);
-    } catch {
-      client = null;
-    }
-
-    if (!client) {
-      return sendHtmlError(reply, 400, 'Unknown Application', 'The client_id provided is not registered.');
-    }
-
-    // Validate redirect_uri against registered URIs
-    if (!client.redirect_uris.includes(redirect_uri)) {
-      return sendHtmlError(reply, 400, 'Invalid Redirect', 'The redirect_uri is not registered for this application.');
-    }
-
-    // Public clients must use PKCE
-    if (client.client_type === 'public') {
-      if (!code_challenge || code_challenge_method !== 'S256') {
-        return sendHtmlError(reply, 400, 'PKCE Required', 'Public clients must provide code_challenge with code_challenge_method=S256.');
+      if (!client_id || !redirect_uri) {
+        return sendHtmlError(reply, 400, 'Bad Request', 'Missing required parameters: client_id and redirect_uri');
       }
-    }
 
-    // Validate code_challenge_method if provided
-    if (code_challenge_method && code_challenge_method !== 'S256') {
-      return sendHtmlError(reply, 400, 'Bad Request', 'Only code_challenge_method=S256 is supported.');
-    }
+      if (response_type && response_type !== 'code') {
+        return sendHtmlError(reply, 400, 'Bad Request', 'Unsupported response_type. Only "code" is supported.');
+      }
 
-    // Validate code_challenge format if provided
-    if (code_challenge && !validateCodeChallenge(code_challenge)) {
-      return sendHtmlError(reply, 400, 'Bad Request', 'Invalid code_challenge format. Must be a 43-character base64url string.');
-    }
-
-    const scopes = scope ? scope.split(' ') : [];
-    if (scopes.length > 0) {
+      // Validate client_id
+      let client: OAuthClient | null;
       try {
-        validateScopes(scopes);
-      } catch (err) {
-        return sendHtmlError(reply, 400, 'Invalid Scopes', (err as Error).message);
+        client = await getClientById(client_id);
+      } catch {
+        client = null;
       }
-      try {
-        enforceClientScopes(scopes, client.allowed_scopes);
-      } catch (err) {
-        return sendHtmlError(reply, 403, 'Forbidden', (err as Error).message);
+
+      if (!client) {
+        return sendHtmlError(reply, 400, 'Unknown Application', 'The client_id provided is not registered.');
       }
-    }
 
-    const scopeDescriptions = describeScopes(scopes);
+      // Validate redirect_uri against registered URIs
+      if (!client.redirect_uris.includes(redirect_uri)) {
+        return sendHtmlError(
+          reply,
+          400,
+          'Invalid Redirect',
+          'The redirect_uri is not registered for this application.',
+        );
+      }
 
-    const cspNonce = generateNonce();
-    const clientSignMethod = getClientSignMethod(client.allowed_sign_methods);
-    const isEvmClient = clientSignMethod === 'evm';
+      // Public clients must use PKCE
+      if (client.client_type === 'public') {
+        if (!code_challenge || code_challenge_method !== 'S256') {
+          return sendHtmlError(
+            reply,
+            400,
+            'PKCE Required',
+            'Public clients must provide code_challenge with code_challenge_method=S256.',
+          );
+        }
+      }
 
-    const html = `<!DOCTYPE html>
+      // Validate code_challenge_method if provided
+      if (code_challenge_method && code_challenge_method !== 'S256') {
+        return sendHtmlError(reply, 400, 'Bad Request', 'Only code_challenge_method=S256 is supported.');
+      }
+
+      // Validate code_challenge format if provided
+      if (code_challenge && !validateCodeChallenge(code_challenge)) {
+        return sendHtmlError(
+          reply,
+          400,
+          'Bad Request',
+          'Invalid code_challenge format. Must be a 43-character base64url string.',
+        );
+      }
+
+      const scopes = scope ? scope.split(' ') : [];
+      if (scopes.length > 0) {
+        try {
+          validateScopes(scopes);
+        } catch (err) {
+          return sendHtmlError(reply, 400, 'Invalid Scopes', (err as Error).message);
+        }
+        try {
+          enforceClientScopes(scopes, client.allowed_scopes);
+        } catch (err) {
+          return sendHtmlError(reply, 403, 'Forbidden', (err as Error).message);
+        }
+      }
+
+      const scopeDescriptions = describeScopes(scopes);
+
+      const cspNonce = generateNonce();
+      const clientSignMethod = getClientSignMethod(client.allowed_sign_methods);
+      const isEvmClient = clientSignMethod === 'evm';
+
+      const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -107,11 +155,17 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
   <div class="auth-card">
     <h1>Authorize access</h1>
     <p class="info"><strong>${escapeHtml(client.client_name)}</strong> wants to verify your wallet identity. You will sign a message to prove ownership — no transaction will be made.</p>
-    ${scopes.length > 0 ? `<div class="scopes-box">
+    ${
+      scopes.length > 0
+        ? `<div class="scopes-box">
       <h3>Access requested</h3>
       ${scopes.map((s, i) => `<div class="scope-item"><span>${escapeHtml(scopeDescriptions[i] ?? s)}</span> <span class="raw">${escapeHtml(s)}</span></div>`).join('')}
-    </div>` : ''}
-    ${isEvmClient ? `<div id="browser-flow">
+    </div>`
+        : ''
+    }
+    ${
+      isEvmClient
+        ? `<div id="browser-flow">
       <div class="account-picker" id="account-picker" style="display:none;">
         <label>Select account:</label>
         <select class="account-select" id="account-select"></select>
@@ -120,7 +174,8 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         <button class="btn-deny" id="btn-deny">Deny</button>
         <button class="btn-authorize" id="btn-authorize" disabled>Sign with MetaMask</button>
       </div>
-    </div>` : `<div id="browser-flow">
+    </div>`
+        : `<div id="browser-flow">
       <div class="account-picker" id="account-picker" style="display:none;">
         <label>Select account:</label>
         <select class="account-select" id="account-select"></select>
@@ -151,7 +206,8 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         <a id="link-cli-refresh" style="cursor:pointer;">Get new challenge</a>
       </div>
       <div class="cli-toggle"><a id="link-show-browser">Back to browser wallet</a></div>
-    </div>`}
+    </div>`
+    }
     <div id="status" class="status"></div>
   </div>
   ${poweredByHtml}
@@ -427,89 +483,103 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
 </body>
 </html>`;
 
-    return applyHtmlSecurityHeaders(reply, cspNonce).header('Content-Type', 'text/html').code(200).send(html);
-  });
+      return applyHtmlSecurityHeaders(reply, cspNonce).header('Content-Type', 'text/html').code(200).send(html);
+    },
+  );
 
   // POST /v1/oauth/callback — internal endpoint used by the authorize page
-  fastify.post('/v1/oauth/callback', {
-    schema: {
-      tags: ['OAuth'],
-      summary: 'Exchange signature for auth code',
-      body: CallbackBodySchema,
-    },
-    config: {
-      rateLimit: {
-        max: config.rateLimitChallenge,
-        timeWindow: '1 minute',
+  fastify.post(
+    '/v1/oauth/callback',
+    {
+      schema: {
+        tags: ['OAuth'],
+        summary: 'Exchange signature for auth code',
+        body: CallbackBodySchema,
+      },
+      config: {
+        rateLimit: {
+          max: config.rateLimitChallenge,
+          timeWindow: '1 minute',
+        },
       },
     },
-  }, async (request: FastifyRequest<{
-    Body: z.infer<typeof CallbackBodySchema>;
-  }>, reply: FastifyReply) => {
-    const { nonce, address: rawAddress, signature, client_id, redirect_uri, code_challenge, oidc_nonce } = request.body;
+    async (
+      request: FastifyRequest<{
+        Body: z.infer<typeof CallbackBodySchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const {
+        nonce,
+        address: rawAddress,
+        signature,
+        client_id,
+        redirect_uri,
+        code_challenge,
+        oidc_nonce,
+      } = request.body;
 
-    // Look up client to get sign method
-    const callbackClient = await getClientById(client_id);
-    if (!callbackClient) {
-      throw new AuthError('Unknown client_id', 400, 'Bad Request');
-    }
-
-    const clientMethod = getClientSignMethod(callbackClient.allowed_sign_methods);
-    const { address, method } = validateAndNormalizeAddress(rawAddress);
-
-    if (method !== clientMethod) {
-      throw new AuthError(`This client requires ${clientMethod} wallet signing`, 400, 'Bad Request');
-    }
-
-    // Consume challenge
-    const challenge = await consumeChallenge(nonce);
-
-    if (challenge.address && challenge.address !== address) {
-      throw new AuthError('Address mismatch', 401, 'Unauthorized');
-    }
-
-    // Verify signature (method-aware)
-    await verifySignatureOrThrow(nonce, signature, address, method);
-
-    // Resolve signer context
-    const isEvm = method === 'evm';
-    const signerCtx = isEvm
-      ? resolveEvmSignerContext(address)
-      : await resolveSignerContext(address);
-
-    if (!isEvm && challenge.scopes.length > 0) {
-      await verifyScopes(signerCtx, challenge.scopes);
-    }
-
-    // Validate client and enforce scope restrictions
-    if (callbackClient.redirect_uris.length > 0) {
-      if (!redirect_uri) {
-        throw new AuthError('redirect_uri is required', 400, 'Bad Request');
+      // Look up client to get sign method
+      const callbackClient = await getClientById(client_id);
+      if (!callbackClient) {
+        throw new AuthError('Unknown client_id', 400, 'Bad Request');
       }
-      if (!callbackClient.redirect_uris.includes(redirect_uri)) {
-        throw new AuthError('redirect_uri not registered for this client', 400, 'Bad Request');
+
+      const clientMethod = getClientSignMethod(callbackClient.allowed_sign_methods);
+      const { address, method } = validateAndNormalizeAddress(rawAddress);
+
+      if (method !== clientMethod) {
+        throw new AuthError(`This client requires ${clientMethod} wallet signing`, 400, 'Bad Request');
       }
-    }
-    if (challenge.scopes.length > 0) {
-      enforceClientScopes(challenge.scopes, callbackClient.allowed_scopes);
-    }
 
-    if (code_challenge && !validateCodeChallenge(code_challenge)) {
-      throw new AuthError('Invalid code_challenge format', 400, 'Bad Request');
-    }
+      // Consume challenge
+      const challenge = await consumeChallenge(nonce);
 
-    // Create auth code with client context embedded
-    const code = createAuthCode(address, challenge.scopes, {
-      client_id,
-      redirect_uri,
-      code_challenge,
-      nonce: oidc_nonce,
-      auth_time: Math.floor(Date.now() / 1000),
-      hotkey: signerCtx.hotkey,
-      coldkey: signerCtx.coldkey,
-      evm_address: signerCtx.evmAddress,
-    });
+      if (challenge.address && challenge.address !== address) {
+        throw new AuthError('Address mismatch', 401, 'Unauthorized');
+      }
 
-    return reply.code(200).send({ code });
-  });
+      // Verify signature (method-aware)
+      await verifySignatureOrThrow(nonce, signature, address, method);
+
+      // Resolve signer context
+      const isEvm = method === 'evm';
+      const signerCtx = isEvm ? resolveEvmSignerContext(address) : await resolveSignerContext(address);
+
+      if (!isEvm && challenge.scopes.length > 0) {
+        await verifyScopes(signerCtx, challenge.scopes);
+      }
+
+      // Validate client and enforce scope restrictions
+      if (callbackClient.redirect_uris.length > 0) {
+        if (!redirect_uri) {
+          throw new AuthError('redirect_uri is required', 400, 'Bad Request');
+        }
+        if (!callbackClient.redirect_uris.includes(redirect_uri)) {
+          throw new AuthError('redirect_uri not registered for this client', 400, 'Bad Request');
+        }
+      }
+      if (challenge.scopes.length > 0) {
+        enforceClientScopes(challenge.scopes, callbackClient.allowed_scopes);
+      }
+
+      if (code_challenge && !validateCodeChallenge(code_challenge)) {
+        throw new AuthError('Invalid code_challenge format', 400, 'Bad Request');
+      }
+
+      // Create auth code with client context embedded
+      const code = createAuthCode(address, challenge.scopes, {
+        client_id,
+        redirect_uri,
+        code_challenge,
+        nonce: oidc_nonce,
+        auth_time: Math.floor(Date.now() / 1000),
+        hotkey: signerCtx.hotkey,
+        coldkey: signerCtx.coldkey,
+        evm_address: signerCtx.evmAddress,
+      });
+
+      return reply.code(200).send({ code });
+    },
+  );
 }

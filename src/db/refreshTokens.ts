@@ -28,10 +28,7 @@ export async function storeRefreshToken(opts: {
 
 export async function getRefreshToken(jti: string): Promise<RefreshTokenRecord | null> {
   const pool = getPool();
-  const { rows } = await pool.query(
-    'SELECT * FROM refresh_tokens WHERE jti = $1',
-    [jti],
-  );
+  const { rows } = await pool.query('SELECT * FROM refresh_tokens WHERE jti = $1', [jti]);
 
   if (rows.length === 0) return null;
 
@@ -50,10 +47,7 @@ export async function getRefreshToken(jti: string): Promise<RefreshTokenRecord |
 
 export async function revokeRefreshToken(jti: string): Promise<void> {
   const pool = getPool();
-  await pool.query(
-    'UPDATE refresh_tokens SET revoked = TRUE WHERE jti = $1',
-    [jti],
-  );
+  await pool.query('UPDATE refresh_tokens SET revoked = TRUE WHERE jti = $1', [jti]);
 }
 
 export async function rotateRefreshToken(
@@ -71,10 +65,7 @@ export async function rotateRefreshToken(
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { rows } = await client.query(
-      'SELECT * FROM refresh_tokens WHERE jti = $1 FOR UPDATE',
-      [oldJti],
-    );
+    const { rows } = await client.query('SELECT * FROM refresh_tokens WHERE jti = $1 FOR UPDATE', [oldJti]);
     if (rows.length === 0) throw new Error(RotateError.NOT_FOUND);
     const old = rows[0];
     if (old.revoked) throw new Error(RotateError.REVOKED);
@@ -82,12 +73,16 @@ export async function rotateRefreshToken(
 
     await client.query(
       'INSERT INTO refresh_tokens (jti, client_id, address, scopes, epoch_at_issuance, expires_at) VALUES ($1,$2,$3,$4,$5,$6)',
-      [newToken.jti, newToken.client_id, newToken.address, newToken.scopes, newToken.epoch_at_issuance, newToken.expires_at],
+      [
+        newToken.jti,
+        newToken.client_id,
+        newToken.address,
+        newToken.scopes,
+        newToken.epoch_at_issuance,
+        newToken.expires_at,
+      ],
     );
-    await client.query(
-      'UPDATE refresh_tokens SET revoked = TRUE WHERE jti = $1',
-      [oldJti],
-    );
+    await client.query('UPDATE refresh_tokens SET revoked = TRUE WHERE jti = $1', [oldJti]);
     await client.query('COMMIT');
 
     return {
@@ -128,7 +123,9 @@ export async function cleanupRefreshTokens(): Promise<void> {
 export function startRefreshTokenCleanup(intervalMs: number = 300000): void {
   if (cleanupInterval) return;
   cleanupInterval = setInterval(() => {
-    cleanupPromise = cleanupRefreshTokens().catch((err) => { console.error('Refresh token cleanup failed:', err); });
+    cleanupPromise = cleanupRefreshTokens().catch((err) => {
+      console.error('Refresh token cleanup failed:', err);
+    });
   }, intervalMs);
   if (cleanupInterval.unref) cleanupInterval.unref();
 }

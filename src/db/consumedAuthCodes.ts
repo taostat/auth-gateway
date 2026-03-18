@@ -7,19 +7,15 @@ import { config } from '../config';
  */
 export async function markAuthCodeConsumed(jti: string): Promise<boolean> {
   const pool = getPool();
-  const { rowCount } = await pool.query(
-    'INSERT INTO consumed_auth_codes (jti) VALUES ($1) ON CONFLICT DO NOTHING',
-    [jti],
-  );
+  const { rowCount } = await pool.query('INSERT INTO consumed_auth_codes (jti) VALUES ($1) ON CONFLICT DO NOTHING', [
+    jti,
+  ]);
   return (rowCount ?? 0) > 0;
 }
 
 export async function isAuthCodeConsumed(jti: string): Promise<boolean> {
   const pool = getPool();
-  const { rows } = await pool.query(
-    'SELECT 1 FROM consumed_auth_codes WHERE jti = $1',
-    [jti],
-  );
+  const { rows } = await pool.query('SELECT 1 FROM consumed_auth_codes WHERE jti = $1', [jti]);
   return rows.length > 0;
 }
 

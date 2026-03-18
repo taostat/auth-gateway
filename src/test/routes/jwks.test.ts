@@ -59,11 +59,12 @@ describe('JWKS Route', () => {
     const pem = pubKeyObj.export({ format: 'pem', type: 'spki' });
 
     // Create a token using the gateway's signing key
-    const token = jwt.sign(
-      { sub: 'test', scopes: [], type: 'access' },
-      getPrivateKey(),
-      { algorithm: 'RS256', issuer: 'https://auth.taostats.io', audience: 'bittensor-apps', expiresIn: 900 },
-    );
+    const token = jwt.sign({ sub: 'test', scopes: [], type: 'access' }, getPrivateKey(), {
+      algorithm: 'RS256',
+      issuer: 'https://auth.taostats.io',
+      audience: 'bittensor-apps',
+      expiresIn: 900,
+    });
 
     // Verify the token using the JWKS public key
     const decoded = jwt.verify(token, pem as string, {

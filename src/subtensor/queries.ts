@@ -100,10 +100,7 @@ export async function getAlphaStakeOnSubnet(address: string, netuid: number): Pr
  */
 export async function getTaoBalance(address: string): Promise<bigint> {
   const api = await getSubtensorApi();
-  const result: any = await withTimeout(
-    (api.query as any).system.account(address),
-    `system.account(${address})`,
-  );
+  const result: any = await withTimeout((api.query as any).system.account(address), `system.account(${address})`);
   const data = result.data || result.toJSON()?.data;
   return BigInt(data?.free?.toString() || '0');
 }
@@ -121,10 +118,7 @@ export async function getEpochDetails(netuid: number): Promise<{
     const api = await getSubtensorApi();
     const [header, tempo] = await Promise.all([
       withTimeout(api.rpc.chain.getHeader(), 'chain.getHeader()'),
-      withTimeout(
-        (api.query as any).subtensorModule.tempo(netuid),
-        `tempo(${netuid})`,
-      ),
+      withTimeout((api.query as any).subtensorModule.tempo(netuid), `tempo(${netuid})`),
     ]);
     const blockNumber = header.number.toNumber();
     const tempoVal = (tempo as any).toNumber();
@@ -170,10 +164,7 @@ export async function getSecondsUntilNextEpoch(netuid: number): Promise<number |
  */
 export async function getOwnerColdkey(hotkey: string): Promise<string | null> {
   const api = await getSubtensorApi();
-  const result: any = await withTimeout(
-    (api.query as any).subtensorModule.owner(hotkey),
-    `owner(${hotkey})`,
-  );
+  const result: any = await withTimeout((api.query as any).subtensorModule.owner(hotkey), `owner(${hotkey})`);
 
   let owner: string | null = null;
 
@@ -200,10 +191,7 @@ export async function getOwnerColdkey(hotkey: string): Promise<string | null> {
  */
 export async function getDividends(netuid: number): Promise<number[]> {
   const api = await getSubtensorApi();
-  const result: any = await withTimeout(
-    (api.query as any).subtensorModule.dividends(netuid),
-    `dividends(${netuid})`,
-  );
+  const result: any = await withTimeout((api.query as any).subtensorModule.dividends(netuid), `dividends(${netuid})`);
   return result.toJSON() as number[];
 }
 

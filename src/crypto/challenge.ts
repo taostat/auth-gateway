@@ -39,7 +39,11 @@ export async function consumeChallenge(nonce: string): Promise<AuthChallenge> {
 
 export function startChallengeCleanup(intervalMs: number = 60000): void {
   if (cleanupInterval) return;
-  cleanupInterval = setInterval(() => { cleanupPromise = dbCleanup().catch((err) => { console.error('Challenge cleanup failed:', err); }); }, intervalMs);
+  cleanupInterval = setInterval(() => {
+    cleanupPromise = dbCleanup().catch((err) => {
+      console.error('Challenge cleanup failed:', err);
+    });
+  }, intervalMs);
   if (cleanupInterval.unref) cleanupInterval.unref();
 }
 

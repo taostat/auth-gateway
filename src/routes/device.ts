@@ -4,7 +4,14 @@ import { z } from 'zod';
 import { createChallenge, consumeChallenge } from '../crypto/challenge';
 import { verifySignatureOrThrow } from '../crypto/signature';
 import { validateAndNormalizeAddress, getClientSignMethod } from '../crypto/address';
-import { verifyScopes, validateScopes, validateScopesForSignMethod, describeScopes, enforceClientScopes, resolveSignerContext } from '../scopes';
+import {
+  verifyScopes,
+  validateScopes,
+  validateScopesForSignMethod,
+  describeScopes,
+  enforceClientScopes,
+  resolveSignerContext,
+} from '../scopes';
 import { getClientById } from '../db/clients';
 import {
   createDeviceCode as dbCreateDeviceCode,
@@ -16,7 +23,17 @@ import {
 import { AuthError, DeviceCodeError, InvalidClientError } from '../util/errors';
 import { config } from '../config';
 import { DeviceCodeResponse } from '../types';
-import { escapeHtml, walletBannerHtml, mobileDetectScript, checkWalletScript, checkEthereumWalletScript, ethereumBannerHtml, authHeaderHtml, poweredByHtml, starryBackgroundHtml } from '../util/html';
+import {
+  escapeHtml,
+  walletBannerHtml,
+  mobileDetectScript,
+  checkWalletScript,
+  checkEthereumWalletScript,
+  ethereumBannerHtml,
+  authHeaderHtml,
+  poweredByHtml,
+  starryBackgroundHtml,
+} from '../util/html';
 import { cssLinks } from '../styles';
 import { testnetBannerHtml } from '../util/testnet';
 import { applyHtmlSecurityHeaders, generateNonce } from './oauth/shared';
@@ -43,15 +60,18 @@ function generateUserCode(): string {
 }
 
 function isUniqueConstraintError(err: unknown): err is { code: string } {
-  return typeof err === 'object'
-    && err !== null
-    && 'code' in err
-    && typeof (err as { code?: unknown }).code === 'string';
+  return (
+    typeof err === 'object' && err !== null && 'code' in err && typeof (err as { code?: unknown }).code === 'string'
+  );
 }
 
 export function startDeviceCodeCleanup(intervalMs: number = 60000): void {
   if (cleanupInterval) return;
-  cleanupInterval = setInterval(() => { cleanupPromise = dbCleanupExpired().catch((err) => { console.error('Device code cleanup error:', err.message); }); }, intervalMs);
+  cleanupInterval = setInterval(() => {
+    cleanupPromise = dbCleanupExpired().catch((err) => {
+      console.error('Device code cleanup error:', err.message);
+    });
+  }, intervalMs);
   if (cleanupInterval.unref) cleanupInterval.unref();
 }
 
@@ -95,93 +115,116 @@ export async function clearDeviceCodes(): Promise<void> {
 
 export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /v1/device/code — request a new device code
-  fastify.post('/v1/device/code', {
-    schema: {
-      tags: ['Device Code'],
-      summary: 'Request a device code',
-      body: DeviceCodeBodySchema,
-      response: { 200: DeviceCodeResponseSchema },
-    },
-  }, async (request: FastifyRequest<{
-    Body: z.infer<typeof DeviceCodeBodySchema>;
-  }>, reply: FastifyReply) => {
-    const { client_id, scopes = [] } = request.body;
-
-    const client = await getClientById(client_id);
-    if (!client) {
-      throw new InvalidClientError('Unknown client_id');
-    }
-
-    if (!client.grant_types.includes('urn:ietf:params:oauth:grant-type:device_code') && !client.grant_types.includes('device_code')) {
-      throw new AuthError('Device code grant not allowed for this client', 400, 'Bad Request');
-    }
-
-    validateScopesForSignMethod(scopes, getClientSignMethod(client.allowed_sign_methods));
-
-    if (scopes.length > 0) {
-      validateScopes(scopes);
-      enforceClientScopes(scopes, client.allowed_scopes);
-    }
-
-    const expiresAt = new Date(Date.now() + config.deviceCodeTtlSeconds * 1000);
-    const { deviceCode, userCode } = await createUniqueDeviceCodeRecord(client_id, scopes, expiresAt);
-
-    const response: DeviceCodeResponse = {
-      device_code: deviceCode,
-      user_code: userCode,
-      verification_uri: config.verificationUri,
-      expires_in: config.deviceCodeTtlSeconds,
-      interval: config.deviceCodePollInterval,
-    };
-
-    return reply.code(200).send(response);
-  });
-
-  // GET /v1/device/scopes — look up scopes for a user_code (used by the verify page)
-  fastify.get('/v1/device/scopes', {
-    schema: {
-      tags: ['Device Code'],
-      summary: 'Look up scopes for a user code',
-      querystring: UserCodeQuerySchema,
-    },
-    config: {
-      rateLimit: {
-        max: 30,
-        timeWindow: '1 minute',
+  fastify.post(
+    '/v1/device/code',
+    {
+      schema: {
+        tags: ['Device Code'],
+        summary: 'Request a device code',
+        body: DeviceCodeBodySchema,
+        response: { 200: DeviceCodeResponseSchema },
       },
     },
-  }, async (request: FastifyRequest<{
-    Querystring: z.infer<typeof UserCodeQuerySchema>;
-  }>, reply: FastifyReply) => {
-    const { user_code } = request.query;
+    async (
+      request: FastifyRequest<{
+        Body: z.infer<typeof DeviceCodeBodySchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const { client_id, scopes = [] } = request.body;
 
-    const found = await getDeviceCodeByUserCode(user_code);
-    if (found) {
-      const deviceClient = await getClientById(found.clientId);
-      return reply.code(200).send({
-        scopes: found.scopes,
-        descriptions: describeScopes(found.scopes),
-        sign_method: getClientSignMethod(deviceClient?.allowed_sign_methods),
-      });
-    }
+      const client = await getClientById(client_id);
+      if (!client) {
+        throw new InvalidClientError('Unknown client_id');
+      }
 
-    return reply.code(404).send({ error: 'Invalid or expired user code' });
-  });
+      if (
+        !client.grant_types.includes('urn:ietf:params:oauth:grant-type:device_code') &&
+        !client.grant_types.includes('device_code')
+      ) {
+        throw new AuthError('Device code grant not allowed for this client', 400, 'Bad Request');
+      }
+
+      validateScopesForSignMethod(scopes, getClientSignMethod(client.allowed_sign_methods));
+
+      if (scopes.length > 0) {
+        validateScopes(scopes);
+        enforceClientScopes(scopes, client.allowed_scopes);
+      }
+
+      const expiresAt = new Date(Date.now() + config.deviceCodeTtlSeconds * 1000);
+      const { deviceCode, userCode } = await createUniqueDeviceCodeRecord(client_id, scopes, expiresAt);
+
+      const response: DeviceCodeResponse = {
+        device_code: deviceCode,
+        user_code: userCode,
+        verification_uri: config.verificationUri,
+        expires_in: config.deviceCodeTtlSeconds,
+        interval: config.deviceCodePollInterval,
+      };
+
+      return reply.code(200).send(response);
+    },
+  );
+
+  // GET /v1/device/scopes — look up scopes for a user_code (used by the verify page)
+  fastify.get(
+    '/v1/device/scopes',
+    {
+      schema: {
+        tags: ['Device Code'],
+        summary: 'Look up scopes for a user code',
+        querystring: UserCodeQuerySchema,
+      },
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: '1 minute',
+        },
+      },
+    },
+    async (
+      request: FastifyRequest<{
+        Querystring: z.infer<typeof UserCodeQuerySchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const { user_code } = request.query;
+
+      const found = await getDeviceCodeByUserCode(user_code);
+      if (found) {
+        const deviceClient = await getClientById(found.clientId);
+        return reply.code(200).send({
+          scopes: found.scopes,
+          descriptions: describeScopes(found.scopes),
+          sign_method: getClientSignMethod(deviceClient?.allowed_sign_methods),
+        });
+      }
+
+      return reply.code(404).send({ error: 'Invalid or expired user code' });
+    },
+  );
 
   // GET /v1/device/verify — page where user enters user_code and signs
-  fastify.get('/v1/device/verify', {
-    schema: {
-      tags: ['Device Code'],
-      summary: 'User-facing approval page',
-      querystring: OptionalUserCodeQuerySchema,
+  fastify.get(
+    '/v1/device/verify',
+    {
+      schema: {
+        tags: ['Device Code'],
+        summary: 'User-facing approval page',
+        querystring: OptionalUserCodeQuerySchema,
+      },
     },
-  }, async (request: FastifyRequest<{
-    Querystring: z.infer<typeof OptionalUserCodeQuerySchema>;
-  }>, reply: FastifyReply) => {
-    const { user_code } = request.query;
-    const cspNonce = generateNonce();
+    async (
+      request: FastifyRequest<{
+        Querystring: z.infer<typeof OptionalUserCodeQuerySchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const { user_code } = request.query;
+      const cspNonce = generateNonce();
 
-    const html = `<!DOCTYPE html>
+      const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -539,105 +582,120 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
 </body>
 </html>`;
 
-    return applyHtmlSecurityHeaders(reply, cspNonce).header('Content-Type', 'text/html').code(200).send(html);
-  });
+      return applyHtmlSecurityHeaders(reply, cspNonce).header('Content-Type', 'text/html').code(200).send(html);
+    },
+  );
 
   // POST /v1/device/approve — initiate approval (creates challenge for signing)
-  fastify.post('/v1/device/approve', {
-    schema: {
-      tags: ['Device Code'],
-      summary: 'Initiate device approval',
-      body: DeviceApproveBodySchema,
-    },
-    config: {
-      rateLimit: {
-        max: config.rateLimitChallenge,
-        timeWindow: '1 minute',
+  fastify.post(
+    '/v1/device/approve',
+    {
+      schema: {
+        tags: ['Device Code'],
+        summary: 'Initiate device approval',
+        body: DeviceApproveBodySchema,
+      },
+      config: {
+        rateLimit: {
+          max: config.rateLimitChallenge,
+          timeWindow: '1 minute',
+        },
       },
     },
-  }, async (request: FastifyRequest<{
-    Body: z.infer<typeof DeviceApproveBodySchema>;
-  }>, reply: FastifyReply) => {
-    const { user_code, address: rawAddress } = request.body;
+    async (
+      request: FastifyRequest<{
+        Body: z.infer<typeof DeviceApproveBodySchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const { user_code, address: rawAddress } = request.body;
 
-    const found = await getDeviceCodeByUserCode(user_code);
+      const found = await getDeviceCodeByUserCode(user_code);
 
-    if (!found) {
-      throw new DeviceCodeError('Invalid or expired user code', 404);
-    }
+      if (!found) {
+        throw new DeviceCodeError('Invalid or expired user code', 404);
+      }
 
-    // Look up client to determine sign method
-    const approveClient = await getClientById(found.clientId);
-    const clientMethod = getClientSignMethod(approveClient?.allowed_sign_methods);
-    const { address, method } = validateAndNormalizeAddress(rawAddress);
+      // Look up client to determine sign method
+      const approveClient = await getClientById(found.clientId);
+      const clientMethod = getClientSignMethod(approveClient?.allowed_sign_methods);
+      const { address, method } = validateAndNormalizeAddress(rawAddress);
 
-    if (method !== clientMethod) {
-      throw new AuthError(`This client requires ${clientMethod} wallet signing`, 400, 'Bad Request');
-    }
+      if (method !== clientMethod) {
+        throw new AuthError(`This client requires ${clientMethod} wallet signing`, 400, 'Bad Request');
+      }
 
-    if (new Date() > found.expiresAt) {
-      throw new DeviceCodeError('Device code expired', 401);
-    }
+      if (new Date() > found.expiresAt) {
+        throw new DeviceCodeError('Device code expired', 401);
+      }
 
-    const challenge = await createChallenge(address, found.scopes);
+      const challenge = await createChallenge(address, found.scopes);
 
-    return reply.code(200).send({ nonce: challenge.nonce });
-  });
+      return reply.code(200).send({ nonce: challenge.nonce });
+    },
+  );
 
   // POST /v1/device/confirm — confirm approval with signature
-  fastify.post('/v1/device/confirm', {
-    schema: {
-      tags: ['Device Code'],
-      summary: 'Confirm device approval with signature',
-      body: DeviceConfirmBodySchema,
-    },
-    config: {
-      rateLimit: {
-        max: config.rateLimitChallenge,
-        timeWindow: '1 minute',
+  fastify.post(
+    '/v1/device/confirm',
+    {
+      schema: {
+        tags: ['Device Code'],
+        summary: 'Confirm device approval with signature',
+        body: DeviceConfirmBodySchema,
+      },
+      config: {
+        rateLimit: {
+          max: config.rateLimitChallenge,
+          timeWindow: '1 minute',
+        },
       },
     },
-  }, async (request: FastifyRequest<{
-    Body: z.infer<typeof DeviceConfirmBodySchema>;
-  }>, reply: FastifyReply) => {
-    const { user_code, address: rawAddress, nonce, signature } = request.body;
+    async (
+      request: FastifyRequest<{
+        Body: z.infer<typeof DeviceConfirmBodySchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const { user_code, address: rawAddress, nonce, signature } = request.body;
 
-    const { address, method } = validateAndNormalizeAddress(rawAddress);
+      const { address, method } = validateAndNormalizeAddress(rawAddress);
 
-    const found = await getDeviceCodeByUserCode(user_code);
+      const found = await getDeviceCodeByUserCode(user_code);
 
-    if (!found) {
-      throw new DeviceCodeError('Invalid or expired user code', 404);
-    }
-
-    // Enforce client sign method
-    const confirmClient = await getClientById(found.clientId);
-    const confirmMethod = getClientSignMethod(confirmClient?.allowed_sign_methods);
-    if (method !== confirmMethod) {
-      throw new AuthError(`This client requires ${confirmMethod} wallet signing`, 400, 'Bad Request');
-    }
-
-    // Consume challenge and verify signature (method-aware)
-    const challenge = await consumeChallenge(nonce);
-
-    if (challenge.address && challenge.address !== address) {
-      throw new AuthError('Address mismatch', 401, 'Unauthorized');
-    }
-
-    await verifySignatureOrThrow(nonce, signature, address, method);
-
-    // Resolve signer context and verify scopes (skip for EVM)
-    const isEvm = method === 'evm';
-    if (!isEvm) {
-      const signerCtx = await resolveSignerContext(address);
-      if (found.scopes.length > 0) {
-        await verifyScopes(signerCtx, found.scopes);
+      if (!found) {
+        throw new DeviceCodeError('Invalid or expired user code', 404);
       }
-    }
 
-    // Mark as approved in DB
-    await approveDeviceCode(user_code, address);
+      // Enforce client sign method
+      const confirmClient = await getClientById(found.clientId);
+      const confirmMethod = getClientSignMethod(confirmClient?.allowed_sign_methods);
+      if (method !== confirmMethod) {
+        throw new AuthError(`This client requires ${confirmMethod} wallet signing`, 400, 'Bad Request');
+      }
 
-    return reply.code(200).send({ status: 'approved' });
-  });
+      // Consume challenge and verify signature (method-aware)
+      const challenge = await consumeChallenge(nonce);
+
+      if (challenge.address && challenge.address !== address) {
+        throw new AuthError('Address mismatch', 401, 'Unauthorized');
+      }
+
+      await verifySignatureOrThrow(nonce, signature, address, method);
+
+      // Resolve signer context and verify scopes (skip for EVM)
+      const isEvm = method === 'evm';
+      if (!isEvm) {
+        const signerCtx = await resolveSignerContext(address);
+        if (found.scopes.length > 0) {
+          await verifyScopes(signerCtx, found.scopes);
+        }
+      }
+
+      // Mark as approved in DB
+      await approveDeviceCode(user_code, address);
+
+      return reply.code(200).send({ status: 'approved' });
+    },
+  );
 }
