@@ -61,13 +61,13 @@ All three must pass before submitting a PR:
 
 ```sh
 npm run typecheck    # tsc --noEmit
-npm run lint         # eslint
+npm run lint         # oxlint
 npm test             # jest
 ```
 
 ## Tests
 
-Tests use Jest with in-memory mocks for the database and Substrate chain.
+Tests use Jest with in-memory mocks for the database and Subtensor chain.
 
 - Test files live in `src/` alongside the code they test (`*.test.ts`).
 - Test behavior, not implementation.

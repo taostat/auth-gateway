@@ -13,14 +13,15 @@
 
 <p align="center">
   OAuth 2.0-compliant authentication gateway for the Bittensor ecosystem.<br>
-  Authenticates wallets via Substrate sr25519 challenge-response, issues RS256 JWTs, and verifies on-chain roles (miner, validator, subnet owner, TAO holder) against live Subtensor state — so any app or service can gate access based on what a wallet actually does on the network.
+  Authenticates Bittensor (sr25519) and Ethereum (EVM) wallets, issues RS256 JWTs, and verifies on-chain roles (miner, validator, subnet owner, TAO holder) against live Subtensor state — so any app or service can gate access based on what a wallet actually does on the network.
 </p>
 
 ## Key Features
 
+- **Two wallet types**: Bittensor (sr25519) and Ethereum (EVM via EIP-191 `personal_sign`)
 - **Three auth flows**: Challenge-response (simple), OAuth2 authorization code (web apps), Device code / RFC 8628 (CLIs)
 - **OIDC support**: Discovery metadata + ID token issuance (`openid` scope, optional `nonce`)
-- **On-chain scope verification**: Validates miner, validator, owner, and holder roles against Subtensor state
+- **On-chain scope verification**: Validates miner, validator, owner, and holder roles against Subtensor state (Bittensor wallets)
 - **Epoch-aligned re-verification**: Skips redundant on-chain calls within the same epoch
 - **PKCE support**: Required for public clients (S256 only)
 - **Refresh token rotation**: DB-backed with revocation support
@@ -277,7 +278,8 @@ src/
 │   ├── pkce.ts                # PKCE S256 challenge/verification
 │   ├── challenge.ts           # Challenge store (DB-backed)
 │   ├── authCodeTracker.ts     # Auth code single-use tracking
-│   └── signature.ts           # sr25519 signature verification
+│   ├── signature.ts           # Signature verification (sr25519 + EVM)
+│   └── address.ts             # Address validation, normalization, sign method detection
 ├── db/
 │   ├── pool.ts                # PostgreSQL connection pool
 │   ├── migrate.ts             # Migration runner
@@ -394,7 +396,7 @@ Supported OIDC surface:
 - Discovery document (`/.well-known/openid-configuration`) and JWKS (`/.well-known/jwks.json`)
 - `openid` scope and ID token issuance from `/v1/oauth/token`
 - `nonce` passthrough (`/v1/oauth/authorize` → `id_token.nonce`)
-- Core ID token claims used by common libs: `iss`, `sub`, `aud`, `exp`, `iat`, `auth_time`, `at_hash` (plus gateway-specific `hotkey`, `coldkey`, `client_id`)
+- Core ID token claims used by common libs: `iss`, `sub`, `aud`, `exp`, `iat`, `auth_time`, `at_hash` (plus gateway-specific `hotkey`, `coldkey`, `evm_address`, `client_id`)
 
 Not currently provided:
 
@@ -418,8 +420,9 @@ See the [`examples/`](./examples/) directory for complete, runnable integration 
 
 ### Token Structure
 
-Access tokens are RS256 JWTs with these claims:
+Access tokens are RS256 JWTs. Claims differ by wallet type:
 
+**Bittensor wallet:**
 ```json
 {
   "sub": "5GrwvaEF...",        // SS58 wallet address
@@ -428,6 +431,7 @@ Access tokens are RS256 JWTs with these claims:
   "jti": "uuid-v4",
   "hotkey": "5FHneW46...",     // hotkey address (null if signer is coldkey)
   "coldkey": "5GrwvaEF...",    // coldkey address (always present)
+  "evm_address": null,
   "client_id": "...",          // present in OAuth flows
   "iss": "https://auth.taostats.io",
   "aud": "bittensor-apps",
@@ -436,7 +440,25 @@ Access tokens are RS256 JWTs with these claims:
 }
 ```
 
-The `hotkey` and `coldkey` claims are resolved from the Subtensor chain at authentication time. If the signer is a registered hotkey, `hotkey` is set to the signing address and `coldkey` to its owner. If the signer is a coldkey (or unregistered address), `hotkey` is `null` and `coldkey` is the signing address. These are point-in-time snapshots — a hotkey could deregister between token issuance and use.
+**Ethereum wallet:**
+```json
+{
+  "sub": "0x1234...abcd",      // EIP-55 checksummed address
+  "scope": "openid",
+  "type": "access",
+  "jti": "uuid-v4",
+  "hotkey": null,
+  "coldkey": null,
+  "evm_address": "0x1234...abcd",
+  "client_id": "...",
+  "iss": "https://auth.taostats.io",
+  "aud": "bittensor-apps",
+  "exp": 1234567890,
+  "iat": 1234567800
+}
+```
+
+For Bittensor wallets, `hotkey` and `coldkey` are resolved from the Subtensor chain at authentication time. If the signer is a registered hotkey, `hotkey` is set to the signing address and `coldkey` to its owner. If the signer is a coldkey (or unregistered address), `hotkey` is `null` and `coldkey` is the signing address. These are point-in-time snapshots — a hotkey could deregister between token issuance and use. EVM wallets only support the `openid` scope.
 
 When `openid` is requested, the token response also includes an OIDC `id_token` with claims like:
 
@@ -452,6 +474,7 @@ When `openid` is requested, the token response also includes an OIDC `id_token` 
   "nonce": "optional-nonce-if-supplied",
   "hotkey": "5FHneW46...",
   "coldkey": "5GrwvaEF...",
+  "evm_address": null,
   "exp": 1234567890,
   "iat": 1234567800
 }
