@@ -37,7 +37,7 @@ for (const name of ['TWKEverett-Regular-web', 'TWKEverett-Medium-web', 'TWKEvere
 }
 
 import { serializeForInlineScript, starryBackgroundHtml } from '../util/html';
-import { DemoClients } from '../demo';
+import { type DemoClients } from '../demo';
 import { sharedCss, cssLinks } from '../styles';
 import { testnetBannerHtml } from '../util/testnet';
 
@@ -71,9 +71,18 @@ const taostatsLogo = `<div class="logo"><svg width="180" height="27" viewBox="0 
 </svg></div>`;
 
 let demoClients: DemoClients | null = null;
+let landingHtmlCache: string | null = null;
 
 export function setDemoClients(clients: DemoClients): void {
   demoClients = clients;
+  landingHtmlCache = null;
+}
+
+function cachedLandingHtml(): string {
+  if (!landingHtmlCache) {
+    landingHtmlCache = config.demoMode && demoClients ? demoPage(demoClients) : productionPage();
+  }
+  return landingHtmlCache;
 }
 
 function endpointLinks(): string {
@@ -128,7 +137,8 @@ function productionPage(): string {
 </html>`;
 }
 
-function demoPage(webClientId: string): string {
+function demoPage(clients: DemoClients): string {
+  const { bittensorClientId, evmClientId } = clients;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -143,39 +153,59 @@ function demoPage(webClientId: string): string {
   ${testnetBannerHtml()}
   ${taostatsLogo}
   <h1>Auth Gateway <span class="badge demo">Demo</span></h1>
-  <p class="subtitle">Substrate wallet authentication with on-chain scope verification for the Bittensor network.</p>
+  <p class="subtitle">Wallet authentication with on-chain scope verification for the Bittensor network.</p>
 
   <div class="card">
     <h3>About</h3>
-    <p style="color:var(--text-secondary);font-size:0.95rem;">This gateway provides OAuth2-based authentication using Substrate sr25519 wallet signatures. It verifies on-chain roles (miner, validator, owner, holder) against Subtensor state and issues RS256 JWT access tokens with epoch-aligned expiry. Tokens include resolved <code>hotkey</code> and <code>coldkey</code> claims so downstream services can identify both keys from a single signature.</p>
+    <p style="color:var(--text-secondary);font-size:0.95rem;">This gateway provides OAuth2-based authentication using Bittensor (sr25519) or Ethereum (EVM) wallet signatures. It verifies on-chain roles against Subtensor state and issues RS256 JWT access tokens with epoch-aligned expiry.</p>
   </div>
 
   <div id="status-bar"></div>
 
-  <div class="card" style="margin-top:1rem;">
-    <h3>OIDC ID Token</h3>
-    <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:12px;">Verify wallet identity via OpenID Connect. Proves you own an address — no on-chain role checks.</p>
-    <div style="text-align:right;"><button class="btn btn-primary" onclick="startFlow('openid').catch(showErr)">Verify Identity</button></div>
+  <div class="tab-bar" style="display:flex;gap:0;margin-top:1.5rem;border-bottom:2px solid #262626;">
+    <button class="tab-btn active" data-tab="bittensor" onclick="switchTab('bittensor')" style="background:none;border:none;border-bottom:2px solid var(--accent);color:var(--text-primary);padding:10px 20px;cursor:pointer;font-family:var(--font);font-size:0.9rem;font-weight:500;margin-bottom:-2px;">Bittensor</button>
+    <button class="tab-btn" data-tab="evm" onclick="switchTab('evm')" style="background:none;border:none;border-bottom:2px solid transparent;color:var(--text-muted);padding:10px 20px;cursor:pointer;font-family:var(--font);font-size:0.9rem;font-weight:500;margin-bottom:-2px;">Ethereum</button>
   </div>
 
-  <div class="card" style="margin-top:1rem;">
-    <h3>OAuth2 Authorization Code</h3>
-    <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:12px;">PKCE flow with on-chain scope verification. Add one or more scopes to check roles against Subtensor state.</p>
-    <div id="scope-rows" style="display:flex;flex-direction:column;gap:8px;"></div>
-    <div style="margin-top:10px;">
-      <button style="background:none;border:none;color:var(--accent);cursor:pointer;font-family:var(--font);font-size:0.85rem;padding:0;" onclick="addScopeRow()">+ Add scope</button>
+  <div id="tab-bittensor">
+    <div class="card" style="margin-top:1rem;">
+      <h3>OIDC ID Token</h3>
+      <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:12px;">Verify wallet identity via OpenID Connect. Proves you own a Bittensor address — no on-chain role checks.</p>
+      <div style="text-align:right;"><button class="btn btn-primary" onclick="startFlow('openid').catch(showErr)">Sign with Polkadot</button></div>
     </div>
-    <p id="scope-preview" style="color:var(--text-muted);font-size:0.8rem;font-family:var(--font-mono);margin-top:10px;"></p>
-    <div style="margin-top:14px;text-align:right;">
-      <button class="btn btn-primary" onclick="loginWithScopes().catch(showErr)">Login with Scopes</button>
+
+    <div class="card" style="margin-top:1rem;">
+      <h3>OAuth2 Authorization Code</h3>
+      <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:12px;">PKCE flow with on-chain scope verification. Add one or more scopes to check roles against Subtensor state.</p>
+      <div id="scope-rows" style="display:flex;flex-direction:column;gap:8px;"></div>
+      <div style="margin-top:10px;">
+        <button style="background:none;border:none;color:var(--accent);cursor:pointer;font-family:var(--font);font-size:0.85rem;padding:0;" onclick="addScopeRow()">+ Add scope</button>
+      </div>
+      <p id="scope-preview" style="color:var(--text-muted);font-size:0.8rem;font-family:var(--font-mono);margin-top:10px;"></p>
+      <div style="margin-top:14px;text-align:right;">
+        <button class="btn btn-primary" onclick="loginWithScopes().catch(showErr)">Login with Scopes</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:1rem;">
+      <h3>Device Code Flow</h3>
+      <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:12px;">For CLI tools and headless devices. Run this in your terminal:</p>
+      <pre id="curl-pipe" style="cursor:pointer;" onclick="copyPipe()" title="Click to copy"></pre>
+      <p style="color:var(--text-muted);font-size:0.8rem;margin-top:8px;">It will request a device code, open your browser for wallet approval, and print your tokens. Requires <code>curl</code> and <code>jq</code>. Or <a href="/v1/device/verify">open the verify page</a> directly.</p>
     </div>
   </div>
 
-  <div class="card" style="margin-top:1rem;">
-    <h3>Device Code Flow</h3>
-    <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:12px;">For CLI tools and headless devices. Run this in your terminal:</p>
-    <pre id="curl-pipe" style="cursor:pointer;" onclick="copyPipe()" title="Click to copy"></pre>
-    <p style="color:var(--text-muted);font-size:0.8rem;margin-top:8px;">It will request a device code, open your browser for wallet approval, and print your tokens. Requires <code>curl</code> and <code>jq</code>. Or <a href="/v1/device/verify">open the verify page</a> directly.</p>
+  <div id="tab-evm" style="display:none;">
+    <div class="card" style="margin-top:1rem;">
+      <h3>OIDC ID Token</h3>
+      <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:12px;">Verify wallet identity via OpenID Connect. Proves you own an Ethereum address — no on-chain role checks.</p>
+      <div style="text-align:right;"><button class="btn btn-primary" onclick="startEvmFlow().catch(showErr)">Sign with Ethereum</button></div>
+    </div>
+
+    <div class="card" style="margin-top:1rem;">
+      <h3>About EVM Sign-In</h3>
+      <p style="color:var(--text-secondary);font-size:0.9rem;">Ethereum wallets can authenticate via EIP-191 <code>personal_sign</code>. EVM clients are limited to the <code>openid</code> scope — on-chain Bittensor role verification requires a Bittensor wallet.</p>
+    </div>
   </div>
 
   ${endpointLinks()}
@@ -185,12 +215,28 @@ function demoPage(webClientId: string): string {
   </footer>
 
   <script data-cfasync="false">
-    const CLIENT_ID = ${serializeForInlineScript(webClientId)};
+    const CLIENT_ID = ${serializeForInlineScript(bittensorClientId)};
+    const EVM_CLIENT_ID = ${serializeForInlineScript(evmClientId)};
     const ISSUER = ${serializeForInlineScript(config.jwtIssuer)};
     const REDIRECT_URI = window.location.origin + '/';
     const IS_MAINNET = ${!config.isTestnet};
 
     function showErr(err) { alert(err.message || err); }
+
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-btn').forEach(function(btn) {
+        var isActive = btn.getAttribute('data-tab') === tab;
+        btn.classList.toggle('active', isActive);
+        btn.style.borderBottomColor = isActive ? 'var(--accent)' : 'transparent';
+        btn.style.color = isActive ? 'var(--text-primary)' : 'var(--text-muted)';
+      });
+      document.getElementById('tab-bittensor').style.display = tab === 'bittensor' ? '' : 'none';
+      document.getElementById('tab-evm').style.display = tab === 'evm' ? '' : 'none';
+    }
+
+    function startEvmFlow() {
+      return startFlow('openid', EVM_CLIENT_ID);
+    }
 
     function esc(str) {
       const d = document.createElement('div');
@@ -371,10 +417,12 @@ function demoPage(webClientId: string): string {
       return btoa(String.fromCharCode(...new Uint8Array(hash))).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, '');
     }
 
-    async function startFlow(scope) {
+    async function startFlow(scope, clientId) {
+      var cid = clientId || CLIENT_ID;
       const verifier = generateVerifier();
       const challenge = await sha256(verifier);
       sessionStorage.setItem('pkce_verifier', verifier);
+      sessionStorage.setItem('flow_client_id', cid);
       var wantsOidc = Boolean(scope) && scope.split(' ').indexOf('openid') !== -1;
       if (wantsOidc) {
         const nonce = generateNonce();
@@ -382,7 +430,7 @@ function demoPage(webClientId: string): string {
       } else {
         sessionStorage.removeItem('oidc_nonce');
       }
-      let url = '/v1/oauth/authorize?client_id=' + encodeURIComponent(CLIENT_ID)
+      let url = '/v1/oauth/authorize?client_id=' + encodeURIComponent(cid)
         + '&redirect_uri=' + encodeURIComponent(REDIRECT_URI)
         + '&response_type=code&state=demo'
         + '&code_challenge=' + challenge
@@ -399,6 +447,12 @@ function demoPage(webClientId: string): string {
       const error = params.get('error');
       const bar = document.getElementById('status-bar');
 
+      // Clean up flow state unconditionally (pkce_verifier cleared after use below)
+      var flowClientId = sessionStorage.getItem('flow_client_id') || CLIENT_ID;
+      var expectedNonce = sessionStorage.getItem('oidc_nonce');
+      sessionStorage.removeItem('flow_client_id');
+      sessionStorage.removeItem('oidc_nonce');
+
       if (error) {
         bar.innerHTML = '<div class="status error">Authorization error: ' + esc(error) + '</div>';
         window.history.replaceState({}, '', '/');
@@ -413,7 +467,7 @@ function demoPage(webClientId: string): string {
         const tokenBody = {
           grant_type: 'authorization_code',
           code: code,
-          client_id: CLIENT_ID,
+          client_id: flowClientId,
           redirect_uri: REDIRECT_URI,
         };
         const verifier = sessionStorage.getItem('pkce_verifier');
@@ -436,8 +490,6 @@ function demoPage(webClientId: string): string {
         }
 
         if (data.id_token) {
-          var expectedNonce = sessionStorage.getItem('oidc_nonce');
-          sessionStorage.removeItem('oidc_nonce');
           var idClaims = decodeJwtPayload(data.id_token);
           if (!idClaims) {
             bar.innerHTML = '<div class="status error">Failed to decode ID token</div>';
@@ -450,8 +502,8 @@ function demoPage(webClientId: string): string {
             window.history.replaceState({}, '', '/');
             return;
           }
-          if (idClaims.aud !== CLIENT_ID) {
-            bar.innerHTML = '<div class="status error">ID token audience mismatch: expected ' + esc(CLIENT_ID) + ', got ' + esc(idClaims.aud) + '</div>';
+          if (idClaims.aud !== flowClientId) {
+            bar.innerHTML = '<div class="status error">ID token audience mismatch: expected ' + esc(flowClientId) + ', got ' + esc(idClaims.aud) + '</div>';
             window.history.replaceState({}, '', '/');
             return;
           }
@@ -508,16 +560,23 @@ function demoPage(webClientId: string): string {
       h.style.cssText = 'font-size:1.1rem;font-weight:500;margin-bottom:16px;color:#fafafa;';
       modal.appendChild(h);
 
+      var isEvm = !!claims.evm_address;
       var fields = [
         ['Token Type', data.id_token ? 'OIDC ID Token' : 'Access Token'],
         ['Address', claims.sub],
-        ['Hotkey', claims.hotkey],
-        ['Coldkey', claims.coldkey],
+      ];
+      if (isEvm) {
+        fields.push(['EVM Address', claims.evm_address]);
+      } else {
+        fields.push(['Hotkey', claims.hotkey]);
+        fields.push(['Coldkey', claims.coldkey]);
+      }
+      fields.push(
         ['Scopes', claims.scope || 'none'],
         ['Issuer', claims.iss],
         ['Audience', claims.aud],
         ['Expires', claims.exp ? new Date(claims.exp * 1000).toLocaleString() : '—'],
-      ];
+      );
 
       if (claims.auth_time) {
         fields.push(['Auth Time', new Date(claims.auth_time * 1000).toLocaleString()]);
@@ -688,7 +747,7 @@ export async function landingRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.get('/', async (_request: FastifyRequest, reply: FastifyReply) => {
-    const html = config.demoMode && demoClients ? demoPage(demoClients.webClientId) : productionPage();
+    const html = cachedLandingHtml();
 
     return reply
       .header('Content-Type', 'text/html')
