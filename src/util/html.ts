@@ -198,11 +198,11 @@ export function checkWalletScript(): string {
 export function ethereumBannerHtml(): string {
   return `
   <div id="eth-banner" class="wallet-banner" style="display:none">
-    <span id="eth-banner-text">MetaMask or an Ethereum wallet is required. <a href="https://metamask.io" target="_blank" rel="noopener noreferrer">Install MetaMask</a></span>
+    <span id="eth-banner-text">An Ethereum wallet is required. <a href="https://ethereum.org/en/wallets/find-wallet/" target="_blank" rel="noopener noreferrer">Find a wallet</a></span>
     <button id="banner-close">&times;</button>
   </div>
   <div id="eth-mobile-notice" class="wallet-banner" style="display:none">
-    <span>Open this page in <a href="https://metamask.io" target="_blank" rel="noopener noreferrer">MetaMask</a>'s in-app browser to sign.
+    <span>Open this page in your Ethereum wallet's in-app browser to sign.
     <button id="btn-copy-url" style="background:none;border:1px solid var(--text-muted);color:var(--text-secondary);border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.8rem;margin-left:6px;">Copy URL</button></span>
   </div>`;
 }
@@ -217,7 +217,7 @@ export function checkEthereumWalletScript(): string {
       if (window.ethereum) {
         if (banner) banner.style.display = 'none';
         if (mobileNotice) mobileNotice.style.display = 'none';
-        if (btn) { btn.disabled = false; btn.textContent = 'Sign with MetaMask'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Sign with Ethereum'; }
         return;
       }
 
@@ -239,7 +239,7 @@ export function checkEthereumWalletScript(): string {
       if (btn) {
         btn.disabled = true;
         btn.textContent = 'No wallet detected';
-        btn.title = 'Install MetaMask or another Ethereum wallet to continue';
+        btn.title = 'Install an Ethereum wallet to continue';
       }
     }
     setTimeout(checkEthWallet, 500);

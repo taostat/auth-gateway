@@ -41,7 +41,7 @@ import { type DemoClients } from '../demo';
 import { sharedCss, cssLinks } from '../styles';
 import { testnetBannerHtml } from '../util/testnet';
 
-const OG_DESCRIPTION = 'Substrate wallet authentication with on-chain scope verification for the Bittensor network.';
+const OG_DESCRIPTION = 'Bittensor and Ethereum wallet authentication with on-chain scope verification.';
 
 function ogMeta(): string {
   const url = config.publicUrl;
@@ -112,11 +112,11 @@ function productionPage(): string {
   ${testnetBannerHtml()}
   ${taostatsLogo}
   <h1>Auth Gateway</h1>
-  <p class="subtitle">Substrate wallet authentication with on-chain scope verification for the Bittensor network.</p>
+  <p class="subtitle">Bittensor and Ethereum wallet authentication with on-chain scope verification.</p>
 
   <div class="card">
     <h3>About</h3>
-    <p style="color:var(--text-secondary);font-size:0.95rem;">This gateway provides OAuth2-based authentication using Substrate sr25519 wallet signatures. It verifies on-chain roles (miner, validator, owner, holder) against Subtensor state and issues RS256 JWT access tokens with epoch-aligned expiry. Tokens include resolved <code>hotkey</code> and <code>coldkey</code> claims so downstream services can identify both keys from a single signature.</p>
+    <p style="color:var(--text-secondary);font-size:0.95rem;">This gateway provides OAuth2-based authentication using Bittensor (sr25519) or Ethereum (EVM) wallet signatures. Bittensor wallets can verify on-chain roles (miner, validator, owner, holder) against Subtensor state. RS256 JWT access tokens include resolved <code>hotkey</code> and <code>coldkey</code> claims for Bittensor wallets, or <code>evm_address</code> for Ethereum wallets.</p>
   </div>
 
   ${endpointLinks()}
@@ -153,7 +153,7 @@ function demoPage(clients: DemoClients): string {
   ${testnetBannerHtml()}
   ${taostatsLogo}
   <h1>Auth Gateway <span class="badge demo">Demo</span></h1>
-  <p class="subtitle">Wallet authentication with on-chain scope verification for the Bittensor network.</p>
+  <p class="subtitle">Bittensor and Ethereum wallet authentication with on-chain scope verification.</p>
 
   <div class="card">
     <h3>About</h3>
