@@ -45,7 +45,7 @@ async function main(): Promise<void> {
   if (config.demoMode) {
     const demoClients = await ensureDemoClients(config.publicUrl);
     setDemoClients(demoClients);
-    console.log(`Demo mode enabled — web: ${demoClients.webClientId}, cli: ${demoClients.cliClientId}`);
+    console.log(`Demo mode enabled — bittensor: ${demoClients.bittensorClientId}, evm: ${demoClients.evmClientId}, cli: ${demoClients.cliClientId}`);
   }
 
   // Eagerly connect to Subtensor so health checks pass at startup

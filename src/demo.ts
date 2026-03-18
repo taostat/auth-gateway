@@ -1,11 +1,26 @@
 import { createClient, listClients } from './db/clients';
+import { OAuthClient } from './types';
 
 const DEMO_WEB_CLIENT_NAME = 'Demo Web App';
+const DEMO_EVM_CLIENT_NAME = 'Demo EVM Web App';
 const DEMO_CLI_CLIENT_NAME = 'Demo CLI';
 
 export interface DemoClients {
-  webClientId: string;
+  bittensorClientId: string;
+  evmClientId: string;
   cliClientId: string;
+}
+
+async function findOrCreateClient(
+  existing: OAuthClient[],
+  name: string,
+  opts: Omit<Parameters<typeof createClient>[0], 'client_name'>,
+): Promise<OAuthClient> {
+  const found = existing.find((c) => c.client_name === name && c.active);
+  if (found) return found;
+  const { client } = await createClient({ client_name: name, ...opts });
+  console.log(`Created demo client ${name}: ${client.client_id}`);
+  return client;
 }
 
 /**
@@ -14,40 +29,36 @@ export interface DemoClients {
  */
 export async function ensureDemoClients(publicUrl: string): Promise<DemoClients> {
   const clients = await listClients();
+  const origin = publicUrl.replace(/\/$/, '');
 
-  // Find or create web app client
-  let webClient = clients.find((c) => c.client_name === DEMO_WEB_CLIENT_NAME && c.active);
-  if (!webClient) {
-    const origin = publicUrl.replace(/\/$/, '');
-    const { client } = await createClient({
-      client_name: DEMO_WEB_CLIENT_NAME,
+  const [webClient, evmClient, cliClient] = await Promise.all([
+    findOrCreateClient(clients, DEMO_WEB_CLIENT_NAME, {
       client_type: 'public',
       redirect_uris: [`${origin}/`],
       grant_types: ['authorization_code'],
       allowed_scopes: [],
       allowed_origins: [origin],
-    });
-    webClient = client;
-    console.log(`Created demo web client: ${client.client_id}`);
-  }
-
-  // Find or create CLI client
-  let cliClient = clients.find((c) => c.client_name === DEMO_CLI_CLIENT_NAME && c.active);
-  if (!cliClient) {
-    const { client } = await createClient({
-      client_name: DEMO_CLI_CLIENT_NAME,
+    }),
+    findOrCreateClient(clients, DEMO_EVM_CLIENT_NAME, {
+      client_type: 'public',
+      redirect_uris: [`${origin}/`],
+      grant_types: ['authorization_code'],
+      allowed_scopes: ['openid'],
+      allowed_origins: [origin],
+      allowed_sign_methods: ['evm'],
+    }),
+    findOrCreateClient(clients, DEMO_CLI_CLIENT_NAME, {
       client_type: 'public',
       redirect_uris: [],
       grant_types: ['urn:ietf:params:oauth:grant-type:device_code'],
       allowed_scopes: [],
       allowed_origins: [],
-    });
-    cliClient = client;
-    console.log(`Created demo CLI client: ${client.client_id}`);
-  }
+    }),
+  ]);
 
   return {
-    webClientId: webClient.client_id,
+    bittensorClientId: webClient.client_id,
+    evmClientId: evmClient.client_id,
     cliClientId: cliClient.client_id,
   };
 }
