@@ -3,7 +3,15 @@ import jwt from 'jsonwebtoken';
 
 import { config } from '../../config';
 import { loadKeys, getPrivateKey } from '../../crypto/keys';
-import { createAccessToken, createRefreshToken, createAuthCode, createIdToken, computeAtHash, verifyToken, verifyIdToken } from '../../crypto/jwt';
+import {
+  createAccessToken,
+  createRefreshToken,
+  createAuthCode,
+  createIdToken,
+  computeAtHash,
+  verifyToken,
+  verifyIdToken,
+} from '../../crypto/jwt';
 
 beforeAll(async () => {
   await cryptoWaitReady();
@@ -47,29 +55,32 @@ describe('JWT', () => {
   });
 
   test('verifyToken rejects expired token', () => {
-    const token = jwt.sign(
-      { sub: address, scopes: [], type: 'access' },
-      getPrivateKey(),
-      { algorithm: 'RS256', issuer: config.jwtIssuer, audience: 'bittensor-apps', expiresIn: -10 },
-    );
+    const token = jwt.sign({ sub: address, scopes: [], type: 'access' }, getPrivateKey(), {
+      algorithm: 'RS256',
+      issuer: config.jwtIssuer,
+      audience: 'bittensor-apps',
+      expiresIn: -10,
+    });
     expect(() => verifyToken(token)).toThrow();
   });
 
   test('verifyToken rejects wrong algorithm (HS256)', () => {
-    const token = jwt.sign(
-      { sub: address, scopes: [], type: 'access' },
-      'some-secret',
-      { algorithm: 'HS256', issuer: config.jwtIssuer, audience: 'bittensor-apps', expiresIn: 900 },
-    );
+    const token = jwt.sign({ sub: address, scopes: [], type: 'access' }, 'some-secret', {
+      algorithm: 'HS256',
+      issuer: config.jwtIssuer,
+      audience: 'bittensor-apps',
+      expiresIn: 900,
+    });
     expect(() => verifyToken(token)).toThrow();
   });
 
   test('verifyToken rejects wrong issuer', () => {
-    const token = jwt.sign(
-      { sub: address, scopes: [], type: 'access' },
-      getPrivateKey(),
-      { algorithm: 'RS256', issuer: 'wrong-issuer', audience: 'bittensor-apps', expiresIn: 900 },
-    );
+    const token = jwt.sign({ sub: address, scopes: [], type: 'access' }, getPrivateKey(), {
+      algorithm: 'RS256',
+      issuer: 'wrong-issuer',
+      audience: 'bittensor-apps',
+      expiresIn: 900,
+    });
     expect(() => verifyToken(token)).toThrow();
   });
 
@@ -77,7 +88,8 @@ describe('JWT', () => {
     const accessToken = createAccessToken(address, ['subnet:1:miner']);
     const authTime = Math.floor(Date.now() / 1000);
     const idToken = createIdToken(address, ['subnet:1:miner'], accessToken, {
-      client_id: 'my-client', auth_time: authTime,
+      client_id: 'my-client',
+      auth_time: authTime,
     });
     const decoded = verifyIdToken(idToken, 'my-client');
     expect(decoded.type).toBe('id');
@@ -90,7 +102,9 @@ describe('JWT', () => {
   test('createIdToken includes nonce when provided', () => {
     const accessToken = createAccessToken(address, []);
     const idToken = createIdToken(address, [], accessToken, {
-      client_id: 'my-client', auth_time: Math.floor(Date.now() / 1000), nonce: 'test-nonce',
+      client_id: 'my-client',
+      auth_time: Math.floor(Date.now() / 1000),
+      nonce: 'test-nonce',
     });
     const decoded = verifyIdToken(idToken, 'my-client');
     expect(decoded.nonce).toBe('test-nonce');
@@ -99,7 +113,8 @@ describe('JWT', () => {
   test('createIdToken omits nonce when not provided', () => {
     const accessToken = createAccessToken(address, []);
     const idToken = createIdToken(address, [], accessToken, {
-      client_id: 'my-client', auth_time: Math.floor(Date.now() / 1000),
+      client_id: 'my-client',
+      auth_time: Math.floor(Date.now() / 1000),
     });
     const decoded = verifyIdToken(idToken, 'my-client');
     expect(decoded.nonce).toBeUndefined();
@@ -108,7 +123,8 @@ describe('JWT', () => {
   test('verifyIdToken rejects wrong audience', () => {
     const accessToken = createAccessToken(address, []);
     const idToken = createIdToken(address, [], accessToken, {
-      client_id: 'my-client', auth_time: Math.floor(Date.now() / 1000),
+      client_id: 'my-client',
+      auth_time: Math.floor(Date.now() / 1000),
     });
     expect(() => verifyIdToken(idToken, 'wrong-client')).toThrow();
   });
@@ -135,5 +151,54 @@ describe('JWT', () => {
     const accessExpiry = accessDecoded.exp - accessDecoded.iat;
     const refreshExpiry = refreshDecoded.exp - refreshDecoded.iat;
     expect(refreshExpiry).toBeGreaterThan(accessExpiry);
+  });
+
+  test('evm_address claim is included when provided', () => {
+    const evmAddr = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+    const token = createAccessToken(evmAddr, ['openid'], {
+      evm_address: evmAddr,
+      hotkey: null,
+      coldkey: null,
+    });
+    const decoded = verifyToken(token);
+    expect(decoded.evm_address).toBe(evmAddr);
+    expect(decoded.hotkey).toBeNull();
+    expect(decoded.coldkey).toBeNull();
+  });
+
+  test('evm_address is null when not provided', () => {
+    const token = createAccessToken(address, []);
+    const decoded = verifyToken(token);
+    expect(decoded.evm_address).toBeNull();
+  });
+
+  test('evm_address in refresh token', () => {
+    const evmAddr = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+    const token = createRefreshToken(evmAddr, ['openid'], {
+      evm_address: evmAddr,
+    });
+    const decoded = verifyToken(token);
+    expect(decoded.evm_address).toBe(evmAddr);
+  });
+
+  test('evm_address in auth code', () => {
+    const evmAddr = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+    const token = createAuthCode(evmAddr, ['openid'], {
+      evm_address: evmAddr,
+    });
+    const decoded = verifyToken(token);
+    expect(decoded.evm_address).toBe(evmAddr);
+  });
+
+  test('evm_address in id token', () => {
+    const evmAddr = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+    const accessToken = createAccessToken(evmAddr, ['openid'], { evm_address: evmAddr });
+    const idToken = createIdToken(evmAddr, ['openid'], accessToken, {
+      client_id: 'evm-client',
+      auth_time: Math.floor(Date.now() / 1000),
+      evm_address: evmAddr,
+    });
+    const decoded = verifyIdToken(idToken, 'evm-client');
+    expect(decoded.evm_address).toBe(evmAddr);
   });
 });

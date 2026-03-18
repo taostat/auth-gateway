@@ -4,15 +4,12 @@ import { z } from 'zod';
 import { createAccessToken, createRefreshToken, createIdToken, verifyToken } from '../../crypto/jwt';
 import { verifyCodeVerifier, validateCodeVerifier } from '../../crypto/pkce';
 import { markAuthCodeConsumed } from '../../crypto/authCodeTracker';
-import { verifyScopes, resolveSignerContext } from '../../scopes';
+import { verifyScopes, resolveSignerContext, resolveEvmSignerContext } from '../../scopes';
 import { authenticateClient } from '../../middleware/clientAuth';
+import { getClientSignMethod } from '../../crypto/address';
 import { checkClientRateLimit } from '../../middleware/clientRateLimit';
 import { storeRefreshToken, rotateRefreshToken, getRefreshToken, RotateError } from '../../db/refreshTokens';
-import {
-  getDeviceCode as dbGetDeviceCode,
-  deleteDeviceCode,
-  updateLastPolledAt,
-} from '../../db/deviceCodes';
+import { getDeviceCode as dbGetDeviceCode, deleteDeviceCode, updateLastPolledAt } from '../../db/deviceCodes';
 import {
   AuthError,
   OAuthErrorCode,
@@ -29,7 +26,7 @@ import { TokenBodySchema } from '../../schemas/oauth';
 import { TokenResponseSchema } from '../../schemas/responses';
 
 type TokenBody = z.infer<typeof TokenBodySchema>;
-type TokenClient = { client_id: string; rate_limit: number; grant_types: string[] };
+type TokenClient = { client_id: string; rate_limit: number; grant_types: string[]; allowed_sign_methods: string[] };
 
 function getErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : '';
@@ -47,6 +44,7 @@ function buildTokenResponse(
     coldkey: string | null;
     auth_time: number;
     nonce?: string | undefined;
+    evm_address?: string | null | undefined;
   },
 ): TokenResponse {
   const response: TokenResponse = {
@@ -65,6 +63,7 @@ function buildTokenResponse(
       expiresIn,
       hotkey: opts.hotkey,
       coldkey: opts.coldkey,
+      evm_address: opts.evm_address,
     });
   }
 
@@ -137,6 +136,7 @@ async function handleAuthorizationCode(
   const refreshJti = randomUUID();
   const hotkey = claims.hotkey ?? null;
   const coldkey = claims.coldkey ?? null;
+  const evmAddress = claims.evm_address ?? null;
   const authTime = claims.auth_time ?? Math.floor(Date.now() / 1000);
 
   const accessToken = createAccessToken(address, scopes, {
@@ -144,6 +144,7 @@ async function handleAuthorizationCode(
     expiresIn: accessExpiry,
     hotkey,
     coldkey,
+    evm_address: evmAddress,
   });
   const refreshToken = createRefreshToken(address, scopes, {
     jti: refreshJti,
@@ -152,6 +153,7 @@ async function handleAuthorizationCode(
     auth_time: authTime,
     hotkey,
     coldkey,
+    evm_address: evmAddress,
   });
 
   await storeRefreshToken({
@@ -165,7 +167,12 @@ async function handleAuthorizationCode(
 
   return reply.code(200).send(
     buildTokenResponse(address, accessToken, refreshToken, scopes, accessExpiry, {
-      client_id: client.client_id, hotkey, coldkey, auth_time: authTime, nonce: claims.nonce,
+      client_id: client.client_id,
+      hotkey,
+      coldkey,
+      auth_time: authTime,
+      nonce: claims.nonce,
+      evm_address: evmAddress,
     }),
   );
 }
@@ -213,17 +220,31 @@ async function handleRefreshToken(
 
   const address = claims.sub;
   const scopes = claims.scope ? claims.scope.split(' ').filter(Boolean) : [];
+  const evmAddress = claims.evm_address ?? null;
+  const isEvm = !!evmAddress;
 
-  // Start epoch query concurrently with scope verification
-  const epochPromise = getEpochInfo(scopes);
+  let accessExpiry: number;
+  let currentEpoch: number | null = null;
+  let signerCtx;
 
-  const signerCtx = await resolveSignerContext(address);
+  if (isEvm) {
+    // EVM refresh: skip on-chain verification, use config expiry
+    accessExpiry = config.jwtAccessTokenExpiry;
+    signerCtx = resolveEvmSignerContext(address);
+  } else {
+    // Start epoch query concurrently with scope verification
+    const epochPromise = getEpochInfo(scopes);
 
-  if (scopes.length > 0) {
-    await verifyScopes(signerCtx, scopes);
+    signerCtx = await resolveSignerContext(address);
+
+    if (scopes.length > 0) {
+      await verifyScopes(signerCtx, scopes);
+    }
+
+    const epochInfo = await epochPromise;
+    accessExpiry = epochInfo.accessExpiry;
+    currentEpoch = epochInfo.epoch;
   }
-
-  const { accessExpiry, epoch: currentEpoch } = await epochPromise;
 
   const newRefreshJti = randomUUID();
   try {
@@ -237,9 +258,12 @@ async function handleRefreshToken(
     });
   } catch (e: unknown) {
     const message = getErrorMessage(e);
-    if (message === RotateError.NOT_FOUND) throw new AuthError('Refresh token not found', 401, OAuthErrorCode.INVALID_GRANT);
-    if (message === RotateError.REVOKED) throw new AuthError('Refresh token has been revoked', 401, OAuthErrorCode.INVALID_GRANT);
-    if (message === RotateError.EXPIRED) throw new AuthError('Refresh token expired', 401, OAuthErrorCode.INVALID_GRANT);
+    if (message === RotateError.NOT_FOUND)
+      throw new AuthError('Refresh token not found', 401, OAuthErrorCode.INVALID_GRANT);
+    if (message === RotateError.REVOKED)
+      throw new AuthError('Refresh token has been revoked', 401, OAuthErrorCode.INVALID_GRANT);
+    if (message === RotateError.EXPIRED)
+      throw new AuthError('Refresh token expired', 401, OAuthErrorCode.INVALID_GRANT);
     throw e;
   }
 
@@ -250,6 +274,7 @@ async function handleRefreshToken(
     expiresIn: accessExpiry,
     hotkey: signerCtx.hotkey,
     coldkey: signerCtx.coldkey,
+    evm_address: signerCtx.evmAddress,
   });
   const newRefreshToken = createRefreshToken(address, scopes, {
     jti: newRefreshJti,
@@ -258,11 +283,16 @@ async function handleRefreshToken(
     auth_time: authTime,
     hotkey: signerCtx.hotkey,
     coldkey: signerCtx.coldkey,
+    evm_address: signerCtx.evmAddress,
   });
 
   return reply.code(200).send(
     buildTokenResponse(address, accessToken, newRefreshToken, scopes, accessExpiry, {
-      client_id: client.client_id, hotkey: signerCtx.hotkey, coldkey: signerCtx.coldkey, auth_time: authTime,
+      client_id: client.client_id,
+      hotkey: signerCtx.hotkey,
+      coldkey: signerCtx.coldkey,
+      auth_time: authTime,
+      evm_address: signerCtx.evmAddress,
     }),
   );
 }
@@ -311,24 +341,34 @@ async function handleDeviceCode(
 
   await deleteDeviceCode(device_code);
 
-  const [{ accessExpiry, epoch }, signerCtx] = await Promise.all([
-    getEpochInfo(entry.scopes),
-    resolveSignerContext(entry.address),
-  ]);
+  const isEvm = getClientSignMethod(client.allowed_sign_methods) === 'evm';
 
-  if (entry.scopes.length > 0) {
-    await verifyScopes(signerCtx, entry.scopes);
+  let signerCtx;
+  let accessExpiry: number;
+  let epoch: number | null = null;
+
+  if (isEvm) {
+    signerCtx = resolveEvmSignerContext(entry.address);
+    accessExpiry = config.jwtAccessTokenExpiry;
+  } else {
+    const [epochInfo, ctx] = await Promise.all([getEpochInfo(entry.scopes), resolveSignerContext(entry.address)]);
+    signerCtx = ctx;
+    accessExpiry = epochInfo.accessExpiry;
+    epoch = epochInfo.epoch;
+
+    if (entry.scopes.length > 0) {
+      await verifyScopes(signerCtx, entry.scopes);
+    }
   }
 
   const refreshJti = randomUUID();
-  const authTime = entry.approvedAt
-    ? Math.floor(entry.approvedAt.getTime() / 1000)
-    : Math.floor(Date.now() / 1000);
+  const authTime = entry.approvedAt ? Math.floor(entry.approvedAt.getTime() / 1000) : Math.floor(Date.now() / 1000);
   const accessToken = createAccessToken(entry.address, entry.scopes, {
     client_id: client.client_id,
     expiresIn: accessExpiry,
     hotkey: signerCtx.hotkey,
     coldkey: signerCtx.coldkey,
+    evm_address: signerCtx.evmAddress,
   });
   const refreshToken = createRefreshToken(entry.address, entry.scopes, {
     jti: refreshJti,
@@ -337,6 +377,7 @@ async function handleDeviceCode(
     auth_time: authTime,
     hotkey: signerCtx.hotkey,
     coldkey: signerCtx.coldkey,
+    evm_address: signerCtx.evmAddress,
   });
 
   await storeRefreshToken({
@@ -350,66 +391,90 @@ async function handleDeviceCode(
 
   return reply.code(200).send(
     buildTokenResponse(entry.address, accessToken, refreshToken, entry.scopes, accessExpiry, {
-      client_id: client.client_id, hotkey: signerCtx.hotkey, coldkey: signerCtx.coldkey, auth_time: authTime,
+      client_id: client.client_id,
+      hotkey: signerCtx.hotkey,
+      coldkey: signerCtx.coldkey,
+      auth_time: authTime,
+      evm_address: signerCtx.evmAddress,
     }),
   );
 }
 
 export async function tokenRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /v1/oauth/token — unified token endpoint (RFC 6749)
-  fastify.post('/v1/oauth/token', {
-    schema: {
-      tags: ['OAuth'],
-      summary: 'Exchange credentials for tokens',
-      body: TokenBodySchema,
-      response: { 200: TokenResponseSchema },
+  fastify.post(
+    '/v1/oauth/token',
+    {
+      schema: {
+        tags: ['OAuth'],
+        summary: 'Exchange credentials for tokens',
+        body: TokenBodySchema,
+        response: { 200: TokenResponseSchema },
+      },
     },
-  }, async (request: FastifyRequest<{
-    Body: TokenBody;
-  }>, reply: FastifyReply) => {
-    const { grant_type } = request.body;
-    const { client, pkceRequired } = await authenticateClient(request);
-    checkClientRateLimit(client.client_id, client.rate_limit);
+    async (
+      request: FastifyRequest<{
+        Body: TokenBody;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const { grant_type } = request.body;
+      const { client, pkceRequired } = await authenticateClient(request);
+      checkClientRateLimit(client.client_id, client.rate_limit);
 
-    const allowedGrant = grant_type === 'urn:ietf:params:oauth:grant-type:device_code'
-      ? client.grant_types.includes('urn:ietf:params:oauth:grant-type:device_code') || client.grant_types.includes('device_code')
-      : client.grant_types.includes(grant_type);
-    if (!allowedGrant) {
-      throw new AuthError('This client is not authorized for the requested grant_type', 400, OAuthErrorCode.UNSUPPORTED_GRANT_TYPE);
-    }
+      const allowedGrant =
+        grant_type === 'urn:ietf:params:oauth:grant-type:device_code'
+          ? client.grant_types.includes('urn:ietf:params:oauth:grant-type:device_code') ||
+            client.grant_types.includes('device_code')
+          : client.grant_types.includes(grant_type);
+      if (!allowedGrant) {
+        throw new AuthError(
+          'This client is not authorized for the requested grant_type',
+          400,
+          OAuthErrorCode.UNSUPPORTED_GRANT_TYPE,
+        );
+      }
 
-    switch (grant_type) {
-      case 'authorization_code':
-        return handleAuthorizationCode(request, reply, client, pkceRequired);
-      case 'refresh_token':
-        return handleRefreshToken(request, reply, client);
-      case 'urn:ietf:params:oauth:grant-type:device_code':
-        return handleDeviceCode(request, reply, client);
-      default:
-        throw new AuthError('Unsupported grant_type', 400, OAuthErrorCode.UNSUPPORTED_GRANT_TYPE);
-    }
-  });
+      switch (grant_type) {
+        case 'authorization_code':
+          return handleAuthorizationCode(request, reply, client, pkceRequired);
+        case 'refresh_token':
+          return handleRefreshToken(request, reply, client);
+        case 'urn:ietf:params:oauth:grant-type:device_code':
+          return handleDeviceCode(request, reply, client);
+        default:
+          throw new AuthError('Unsupported grant_type', 400, OAuthErrorCode.UNSUPPORTED_GRANT_TYPE);
+      }
+    },
+  );
 
   // POST /v1/oauth/refresh — backward-compat alias for refresh_token grant
-  fastify.post('/v1/oauth/refresh', {
-    schema: {
-      tags: ['OAuth'],
-      summary: 'Refresh token rotation',
-      body: TokenBodySchema,
-      response: { 200: TokenResponseSchema },
+  fastify.post(
+    '/v1/oauth/refresh',
+    {
+      schema: {
+        tags: ['OAuth'],
+        summary: 'Refresh token rotation',
+        body: TokenBodySchema,
+        response: { 200: TokenResponseSchema },
+      },
     },
-  }, async (request: FastifyRequest<{
-    Body: TokenBody;
-  }>, reply: FastifyReply) => {
-    const { grant_type } = request.body;
+    async (
+      request: FastifyRequest<{
+        Body: TokenBody;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const { grant_type } = request.body;
 
-    if (grant_type !== 'refresh_token') {
-      throw new AuthError('Unsupported grant_type. Use "refresh_token".', 400, OAuthErrorCode.UNSUPPORTED_GRANT_TYPE);
-    }
+      if (grant_type !== 'refresh_token') {
+        throw new AuthError('Unsupported grant_type. Use "refresh_token".', 400, OAuthErrorCode.UNSUPPORTED_GRANT_TYPE);
+      }
 
-    const { client } = await authenticateClient(request);
-    checkClientRateLimit(client.client_id, client.rate_limit);
+      const { client } = await authenticateClient(request);
+      checkClientRateLimit(client.client_id, client.rate_limit);
 
-    return handleRefreshToken(request, reply, client);
-  });
+      return handleRefreshToken(request, reply, client);
+    },
+  );
 }

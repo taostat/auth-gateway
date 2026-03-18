@@ -144,21 +144,45 @@ export function walletBannerHtml(): string {
   <div id="wallet-banner" class="wallet-banner" style="display:none">
     <span>For the best experience, install the <a href="${escapeHtml(config.walletBannerUrl)}" target="_blank" rel="noopener noreferrer">Taostats Wallet</a></span>
     <button id="banner-close">&times;</button>
+  </div>
+  <div id="mobile-notice" class="wallet-banner" style="display:none">
+    <span>Wallet signing is not available on mobile. Please open this page on a desktop browser.</span>
   </div>`;
+}
+
+export function mobileDetectScript(): string {
+  return `function isMobileDevice() {
+      return /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent);
+    }`;
 }
 
 export function checkWalletScript(): string {
   if (!config.walletBannerUrl) return '';
   return `function checkWallet() {
       var banner = document.getElementById('wallet-banner');
+      var mobileNotice = document.getElementById('mobile-notice');
       var btn = document.getElementById('btn-authorize');
+      var cliLink = document.getElementById('link-show-cli');
+
+      if (isMobileDevice()) {
+        if (banner) banner.style.display = 'none';
+        if (mobileNotice) mobileNotice.style.display = 'flex';
+        if (cliLink) cliLink.style.display = 'none';
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = 'Desktop required';
+          btn.title = 'Wallet signing requires a desktop browser';
+        }
+        return;
+      }
+
       if (!banner) return;
       if (!window.injectedWeb3 || Object.keys(window.injectedWeb3).length === 0) {
         banner.style.display = 'flex';
         if (btn) {
           btn.disabled = true;
           btn.textContent = 'No wallet detected';
-          btn.title = 'Install a Polkadot-compatible wallet extension to continue';
+          btn.title = 'Install the Taostats Wallet extension to continue';
         }
       } else {
         banner.style.display = 'none';
@@ -169,4 +193,55 @@ export function checkWalletScript(): string {
     }
     setTimeout(checkWallet, 500);
     setTimeout(checkWallet, 2000);`;
+}
+
+export function ethereumBannerHtml(): string {
+  return `
+  <div id="eth-banner" class="wallet-banner" style="display:none">
+    <span id="eth-banner-text">MetaMask or an Ethereum wallet is required. <a href="https://metamask.io" target="_blank" rel="noopener noreferrer">Install MetaMask</a></span>
+    <button id="banner-close">&times;</button>
+  </div>
+  <div id="eth-mobile-notice" class="wallet-banner" style="display:none">
+    <span>Open this page in <a href="https://metamask.io" target="_blank" rel="noopener noreferrer">MetaMask</a>'s in-app browser to sign.
+    <button id="btn-copy-url" style="background:none;border:1px solid var(--text-muted);color:var(--text-secondary);border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.8rem;margin-left:6px;">Copy URL</button></span>
+  </div>`;
+}
+
+export function checkEthereumWalletScript(): string {
+  return `function checkEthWallet() {
+      var banner = document.getElementById('eth-banner');
+      var mobileNotice = document.getElementById('eth-mobile-notice');
+      var btn = document.getElementById('btn-authorize');
+      var copyBtn = document.getElementById('btn-copy-url');
+
+      if (window.ethereum) {
+        if (banner) banner.style.display = 'none';
+        if (mobileNotice) mobileNotice.style.display = 'none';
+        if (btn) { btn.disabled = false; btn.textContent = 'Sign with MetaMask'; }
+        return;
+      }
+
+      if (isMobileDevice()) {
+        if (banner) banner.style.display = 'none';
+        if (mobileNotice) mobileNotice.style.display = 'flex';
+        if (copyBtn) {
+          copyBtn.addEventListener('click', function() {
+            navigator.clipboard.writeText(window.location.href).then(function() {
+              copyBtn.textContent = 'Copied!';
+              setTimeout(function() { copyBtn.textContent = 'Copy URL'; }, 1500);
+            });
+          });
+        }
+      } else {
+        if (banner) banner.style.display = 'flex';
+      }
+
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'No wallet detected';
+        btn.title = 'Install MetaMask or another Ethereum wallet to continue';
+      }
+    }
+    setTimeout(checkEthWallet, 500);
+    setTimeout(checkEthWallet, 2000);`;
 }

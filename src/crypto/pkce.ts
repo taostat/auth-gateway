@@ -4,10 +4,7 @@ import crypto from 'crypto';
  * Generate an S256 code challenge from a code verifier (RFC 7636).
  */
 export function generateS256Challenge(codeVerifier: string): string {
-  return crypto
-    .createHash('sha256')
-    .update(codeVerifier, 'ascii')
-    .digest('base64url');
+  return crypto.createHash('sha256').update(codeVerifier, 'ascii').digest('base64url');
 }
 
 /**

@@ -3,14 +3,33 @@ import { OAuthClient, RefreshTokenRecord } from '../../types';
 // In-memory mock stores
 const clients = new Map<string, OAuthClient>();
 const refreshTokens = new Map<string, RefreshTokenRecord>();
-const challenges = new Map<string, { nonce: string; address: string | null; scopes: string[]; createdAt: Date; consumed: boolean }>();
-const deviceCodes = new Map<string, { deviceCode: string; userCode: string; clientId: string; scopes: string[]; approved: boolean; denied: boolean; address: string | null; approvedAt: Date | null; createdAt: Date; expiresAt: Date; lastPolledAt: Date | null }>();
+const challenges = new Map<
+  string,
+  { nonce: string; address: string | null; scopes: string[]; createdAt: Date; consumed: boolean }
+>();
+const deviceCodes = new Map<
+  string,
+  {
+    deviceCode: string;
+    userCode: string;
+    clientId: string;
+    scopes: string[];
+    approved: boolean;
+    denied: boolean;
+    address: string | null;
+    approvedAt: Date | null;
+    createdAt: Date;
+    expiresAt: Date;
+    lastPolledAt: Date | null;
+  }
+>();
 const consumedAuthCodes = new Set<string>();
 
 // Default test client
 export const TEST_CLIENT_ID = 'test-client-id';
 export const TEST_CLIENT_SECRET = 'test-client-secret';
-export const TEST_CLIENT_SECRET_HASH = 'scrypt$16384$8$1$3rNi8ChbJg-bLgSRqLga5w$8dizjZp9xLSEyC4FlIdsWt7beV88BY-dXny-ux_8EiYTJCojmn0v8mXgneqZ3RAlASFrkeM6lcKB5ijZ4i2mHQ'; // scrypt hash of 'test-client-secret'
+export const TEST_CLIENT_SECRET_HASH =
+  'scrypt$16384$8$1$3rNi8ChbJg-bLgSRqLga5w$8dizjZp9xLSEyC4FlIdsWt7beV88BY-dXny-ux_8EiYTJCojmn0v8mXgneqZ3RAlASFrkeM6lcKB5ijZ4i2mHQ'; // scrypt hash of 'test-client-secret'
 
 export function createTestClient(overrides?: Partial<OAuthClient>): OAuthClient {
   return {
@@ -22,6 +41,7 @@ export function createTestClient(overrides?: Partial<OAuthClient>): OAuthClient 
     grant_types: ['authorization_code', 'refresh_token', 'urn:ietf:params:oauth:grant-type:device_code'],
     allowed_scopes: [],
     allowed_origins: ['http://localhost:3001'],
+    allowed_sign_methods: ['sr25519'],
     rate_limit: 60,
     active: true,
     created_at: new Date(),
@@ -39,6 +59,7 @@ export function createPublicTestClient(overrides?: Partial<OAuthClient>): OAuthC
     grant_types: ['authorization_code', 'urn:ietf:params:oauth:grant-type:device_code'],
     allowed_scopes: [],
     allowed_origins: ['http://localhost:3001'],
+    allowed_sign_methods: ['sr25519'],
     rate_limit: 60,
     active: true,
     created_at: new Date(),
@@ -185,22 +206,41 @@ export function setupMockDb(): void {
         const challenge = challenges.get(nonce);
         if (!challenge || challenge.consumed) throw new Error('challenge_not_found');
         challenge.consumed = true;
-        return { nonce: challenge.nonce, address: challenge.address, scopes: challenge.scopes, createdAt: challenge.createdAt };
+        return {
+          nonce: challenge.nonce,
+          address: challenge.address,
+          scopes: challenge.scopes,
+          createdAt: challenge.createdAt,
+        };
       }),
       cleanupExpiredChallenges: jest.fn().mockResolvedValue(undefined),
-      clearChallenges: jest.fn().mockImplementation(async () => { challenges.clear(); }),
+      clearChallenges: jest.fn().mockImplementation(async () => {
+        challenges.clear();
+      }),
     };
   });
 
   // Mock db/deviceCodes
   jest.mock('../../db/deviceCodes', () => ({
-    createDeviceCode: jest.fn().mockImplementation(async (deviceCode: string, userCode: string, clientId: string, scopes: string[], expiresAt: Date) => {
-      deviceCodes.set(deviceCode, {
-        deviceCode, userCode, clientId, scopes,
-        approved: false, denied: false, address: null, approvedAt: null,
-        createdAt: new Date(), expiresAt, lastPolledAt: null,
-      });
-    }),
+    createDeviceCode: jest
+      .fn()
+      .mockImplementation(
+        async (deviceCode: string, userCode: string, clientId: string, scopes: string[], expiresAt: Date) => {
+          deviceCodes.set(deviceCode, {
+            deviceCode,
+            userCode,
+            clientId,
+            scopes,
+            approved: false,
+            denied: false,
+            address: null,
+            approvedAt: null,
+            createdAt: new Date(),
+            expiresAt,
+            lastPolledAt: null,
+          });
+        },
+      ),
     getDeviceCode: jest.fn().mockImplementation(async (deviceCode: string) => {
       return deviceCodes.get(deviceCode) || null;
     }),
@@ -240,7 +280,9 @@ export function setupMockDb(): void {
       deviceCodes.delete(deviceCode);
     }),
     cleanupExpiredDeviceCodes: jest.fn().mockResolvedValue(undefined),
-    clearDeviceCodes: jest.fn().mockImplementation(async () => { deviceCodes.clear(); }),
+    clearDeviceCodes: jest.fn().mockImplementation(async () => {
+      deviceCodes.clear();
+    }),
   }));
 
   // Mock db/consumedAuthCodes
@@ -254,7 +296,9 @@ export function setupMockDb(): void {
       return consumedAuthCodes.has(jti);
     }),
     cleanupConsumedCodes: jest.fn().mockResolvedValue(undefined),
-    clearConsumedCodes: jest.fn().mockImplementation(async () => { consumedAuthCodes.clear(); }),
+    clearConsumedCodes: jest.fn().mockImplementation(async () => {
+      consumedAuthCodes.clear();
+    }),
   }));
 
   // Mock db/pool

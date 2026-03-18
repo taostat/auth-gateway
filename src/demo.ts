@@ -16,7 +16,7 @@ export async function ensureDemoClients(publicUrl: string): Promise<DemoClients>
   const clients = await listClients();
 
   // Find or create web app client
-  let webClient = clients.find(c => c.client_name === DEMO_WEB_CLIENT_NAME && c.active);
+  let webClient = clients.find((c) => c.client_name === DEMO_WEB_CLIENT_NAME && c.active);
   if (!webClient) {
     const origin = publicUrl.replace(/\/$/, '');
     const { client } = await createClient({
@@ -32,7 +32,7 @@ export async function ensureDemoClients(publicUrl: string): Promise<DemoClients>
   }
 
   // Find or create CLI client
-  let cliClient = clients.find(c => c.client_name === DEMO_CLI_CLIENT_NAME && c.active);
+  let cliClient = clients.find((c) => c.client_name === DEMO_CLI_CLIENT_NAME && c.active);
   if (!cliClient) {
     const { client } = await createClient({
       client_name: DEMO_CLI_CLIENT_NAME,

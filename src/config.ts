@@ -90,7 +90,10 @@ export const config = {
   demoMode: optionalEnv('DEMO_MODE', 'false') === 'true',
 
   // Wallet banner
-  walletBannerUrl: optionalEnv('WALLET_BANNER_URL', 'https://chromewebstore.google.com/detail/taostats-wallet/khdnjjgidjjbjpececegbfglalchffpo'),
+  walletBannerUrl: optionalEnv(
+    'WALLET_BANNER_URL',
+    'https://chromewebstore.google.com/detail/taostats-wallet/khdnjjgidjjbjpececegbfglalchffpo',
+  ),
 
   // Request limits
   jsonBodyLimitBytes: intEnv('JSON_BODY_LIMIT_BYTES', 65536),

@@ -1,19 +1,9 @@
 import crypto from 'crypto';
 import { FastifyReply } from 'fastify';
-import { decodeAddress } from '@polkadot/util-crypto';
 import { getEpochDetails } from '../../subtensor/queries';
 import { config } from '../../config';
 import { escapeHtml } from '../../util/html';
 import { cssLinks } from '../../styles';
-
-export function isValidSS58(address: string): boolean {
-  try {
-    decodeAddress(address);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export function errorPage(title: string, message: string): string {
   return `<!DOCTYPE html>
@@ -36,11 +26,12 @@ export function generateNonce(): string {
 }
 
 export function applyHtmlSecurityHeaders(reply: FastifyReply, nonce?: string): FastifyReply {
-  const scriptSrc = nonce
-    ? `'self' 'nonce-${nonce}'`
-    : "'self' 'unsafe-inline'";
+  const scriptSrc = nonce ? `'self' 'nonce-${nonce}'` : "'self' 'unsafe-inline'";
   reply
-    .header('Content-Security-Policy', `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`)
+    .header(
+      'Content-Security-Policy',
+      `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`,
+    )
     .header('X-Frame-Options', 'DENY')
     .header('X-Content-Type-Options', 'nosniff')
     .header('Referrer-Policy', 'no-referrer');

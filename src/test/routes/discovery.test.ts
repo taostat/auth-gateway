@@ -86,7 +86,9 @@ describe('OAuth 2.0 Authorization Server Metadata (RFC 8414)', () => {
     test('includes OIDC discovery fields', () => {
       expect(doc.subject_types_supported).toEqual(['public']);
       expect(doc.id_token_signing_alg_values_supported).toEqual(['RS256']);
-      expect(doc.claims_supported).toEqual(expect.arrayContaining(['sub', 'iss', 'aud', 'nonce', 'at_hash', 'auth_time', 'hotkey', 'coldkey']));
+      expect(doc.claims_supported).toEqual(
+        expect.arrayContaining(['sub', 'iss', 'aud', 'nonce', 'at_hash', 'auth_time', 'hotkey', 'coldkey']),
+      );
     });
 
     test('endpoint paths match actual routes', () => {
@@ -114,12 +116,7 @@ describe('OAuth 2.0 Authorization Server Metadata (RFC 8414)', () => {
 
   describe('endpoint URL formats', () => {
     test('all endpoint URLs are well-formed HTTPS URLs', () => {
-      const endpointFields = [
-        'authorization_endpoint',
-        'token_endpoint',
-        'device_authorization_endpoint',
-        'jwks_uri',
-      ];
+      const endpointFields = ['authorization_endpoint', 'token_endpoint', 'device_authorization_endpoint', 'jwks_uri'];
       for (const field of endpointFields) {
         if (doc[field] !== undefined) {
           expectHttpsUrl(doc[field], field);
@@ -187,12 +184,7 @@ describe('OAuth 2.0 Authorization Server Metadata (RFC 8414)', () => {
 
     test('endpoint URLs are rooted under the public URL', () => {
       const publicUrl = 'https://auth.taostats.io';
-      const endpointFields = [
-        'authorization_endpoint',
-        'token_endpoint',
-        'device_authorization_endpoint',
-        'jwks_uri',
-      ];
+      const endpointFields = ['authorization_endpoint', 'token_endpoint', 'device_authorization_endpoint', 'jwks_uri'];
       for (const field of endpointFields) {
         if (doc[field] !== undefined) {
           expect((doc[field] as string).startsWith(publicUrl)).toBe(true);

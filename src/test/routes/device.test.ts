@@ -1,5 +1,15 @@
 import { cryptoWaitReady } from '@polkadot/util-crypto';
-import { setupMockDb, createTestClient, addTestClient, clearTestClients, clearTestRefreshTokens, clearTestChallenges, clearTestDeviceCodes, TEST_CLIENT_ID, TEST_CLIENT_SECRET } from '../helpers/mockDb';
+import {
+  setupMockDb,
+  createTestClient,
+  addTestClient,
+  clearTestClients,
+  clearTestRefreshTokens,
+  clearTestChallenges,
+  clearTestDeviceCodes,
+  TEST_CLIENT_ID,
+  TEST_CLIENT_SECRET,
+} from '../helpers/mockDb';
 import { createMockApi, MockChainBuilder } from '../helpers/mockSubtensor';
 
 // Setup mocks BEFORE other imports
@@ -242,12 +252,14 @@ describe('Device Code Routes', () => {
 
     test('rejects polling with wrong client_id', async () => {
       // Create another client
-      addTestClient(createTestClient({
-        client_id: 'other-client',
-        client_name: 'Other',
-        client_type: 'public',
-        grant_types: ['urn:ietf:params:oauth:grant-type:device_code'],
-      }));
+      addTestClient(
+        createTestClient({
+          client_id: 'other-client',
+          client_name: 'Other',
+          client_type: 'public',
+          grant_types: ['urn:ietf:params:oauth:grant-type:device_code'],
+        }),
+      );
 
       const codeRes = await app.inject({
         method: 'POST',
@@ -311,12 +323,14 @@ describe('Device Code Routes', () => {
 
   describe('allowed_scopes enforcement', () => {
     test('rejects scopes not in client allowed_scopes', async () => {
-      addTestClient(createTestClient({
-        client_id: 'restricted-device',
-        client_name: 'Restricted Device',
-        allowed_scopes: ['subnet:1:miner'],
-        grant_types: ['urn:ietf:params:oauth:grant-type:device_code'],
-      }));
+      addTestClient(
+        createTestClient({
+          client_id: 'restricted-device',
+          client_name: 'Restricted Device',
+          allowed_scopes: ['subnet:1:miner'],
+          grant_types: ['urn:ietf:params:oauth:grant-type:device_code'],
+        }),
+      );
 
       const res = await app.inject({
         method: 'POST',
@@ -329,12 +343,14 @@ describe('Device Code Routes', () => {
     });
 
     test('allows scopes within client allowed_scopes', async () => {
-      addTestClient(createTestClient({
-        client_id: 'restricted-device-2',
-        client_name: 'Restricted Device 2',
-        allowed_scopes: ['subnet:1:miner'],
-        grant_types: ['urn:ietf:params:oauth:grant-type:device_code'],
-      }));
+      addTestClient(
+        createTestClient({
+          client_id: 'restricted-device-2',
+          client_name: 'Restricted Device 2',
+          allowed_scopes: ['subnet:1:miner'],
+          grant_types: ['urn:ietf:params:oauth:grant-type:device_code'],
+        }),
+      );
 
       const res = await app.inject({
         method: 'POST',

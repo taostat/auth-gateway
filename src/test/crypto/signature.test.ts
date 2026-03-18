@@ -50,7 +50,7 @@ describe('Signature Verification', () => {
     const address = await getAliceAddress();
     const badSig = '0x' + '00'.repeat(64);
 
-    expect(() => verifySignatureOrThrow(message, badSig, address)).toThrow('Invalid signature');
+    await expect(verifySignatureOrThrow(message, badSig, address)).rejects.toThrow('Invalid signature');
   });
 
   test('verifySignatureOrThrow does not throw on valid sig', async () => {
@@ -58,6 +58,6 @@ describe('Signature Verification', () => {
     const address = await getAliceAddress();
     const signature = await signWithAlice(message);
 
-    expect(() => verifySignatureOrThrow(message, signature, address)).not.toThrow();
+    await expect(verifySignatureOrThrow(message, signature, address)).resolves.not.toThrow();
   });
 });

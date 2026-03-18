@@ -27,10 +27,7 @@ describe('Staker Scope Handler', () => {
       data: [{ total_balance_as_tao: '5000000000000' }],
       pagination: { total_items: 1 },
     });
-    const result = await stakerHandler.verify(
-      coldkey(ALICE),
-      { netuid: 0, minAmount: 1000n * RAO },
-    );
+    const result = await stakerHandler.verify(coldkey(ALICE), { netuid: 0, minAmount: 1000n * RAO });
     expect(result).toBe(true);
   });
 
@@ -39,19 +36,13 @@ describe('Staker Scope Handler', () => {
       data: [{ total_balance_as_tao: '500000000000' }],
       pagination: { total_items: 1 },
     });
-    const result = await stakerHandler.verify(
-      coldkey(ALICE),
-      { netuid: 0, minAmount: 1000n * RAO },
-    );
+    const result = await stakerHandler.verify(coldkey(ALICE), { netuid: 0, minAmount: 1000n * RAO });
     expect(result).toBe(false);
   });
 
   test('returns false when no data', async () => {
     mockTaostatsGet.mockResolvedValue({ data: [], pagination: { total_items: 0 } });
-    const result = await stakerHandler.verify(
-      coldkey(ALICE),
-      { netuid: 0, minAmount: 100n * RAO },
-    );
+    const result = await stakerHandler.verify(coldkey(ALICE), { netuid: 0, minAmount: 100n * RAO });
     expect(result).toBe(false);
   });
 
@@ -60,19 +51,13 @@ describe('Staker Scope Handler', () => {
       data: [{ total_balance_as_tao: '1' }],
       pagination: { total_items: 1 },
     });
-    const result = await stakerHandler.verify(
-      coldkey(ALICE),
-      { netuid: 0, minAmount: 1n },
-    );
+    const result = await stakerHandler.verify(coldkey(ALICE), { netuid: 0, minAmount: 1n });
     expect(result).toBe(true);
   });
 
   test('returns false when Taostats API call fails', async () => {
     mockTaostatsGet.mockRejectedValue(new Error('Taostats unavailable'));
-    const result = await stakerHandler.verify(
-      coldkey(ALICE),
-      { netuid: 0, minAmount: 100n * RAO },
-    );
+    const result = await stakerHandler.verify(coldkey(ALICE), { netuid: 0, minAmount: 100n * RAO });
     expect(result).toBe(false);
   });
 });

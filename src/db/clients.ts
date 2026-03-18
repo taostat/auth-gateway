@@ -61,6 +61,7 @@ interface OAuthClientRow {
   grant_types: string[] | null;
   allowed_scopes: string[] | null;
   allowed_origins: string[] | null;
+  allowed_sign_methods: string[] | null;
   rate_limit: number;
   active: boolean;
   created_at: Date;
@@ -77,6 +78,7 @@ function fromRow(row: OAuthClientRow): OAuthClient {
     grant_types: row.grant_types || [],
     allowed_scopes: row.allowed_scopes || [],
     allowed_origins: row.allowed_origins || [],
+    allowed_sign_methods: row.allowed_sign_methods || [],
     rate_limit: row.rate_limit,
     active: row.active,
     created_at: row.created_at,
@@ -113,6 +115,7 @@ export async function createClient(opts: {
   grant_types?: string[] | undefined;
   allowed_scopes?: string[] | undefined;
   allowed_origins?: string[] | undefined;
+  allowed_sign_methods?: string[] | undefined;
   rate_limit?: number | undefined;
 }): Promise<{ client: OAuthClient; client_secret?: string | undefined }> {
   const pool = getPool();
@@ -126,8 +129,8 @@ export async function createClient(opts: {
   }
 
   const { rows } = await pool.query<OAuthClientRow>(
-    `INSERT INTO oauth_clients (client_secret_hash, client_name, client_type, redirect_uris, grant_types, allowed_scopes, allowed_origins, rate_limit)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO oauth_clients (client_secret_hash, client_name, client_type, redirect_uris, grant_types, allowed_scopes, allowed_origins, allowed_sign_methods, rate_limit)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING *`,
     [
       secretHash,
@@ -137,6 +140,7 @@ export async function createClient(opts: {
       opts.grant_types || ['authorization_code'],
       opts.allowed_scopes || [],
       opts.allowed_origins || [],
+      opts.allowed_sign_methods || ['sr25519'],
       opts.rate_limit ?? 60,
     ],
   );
@@ -155,7 +159,7 @@ export async function createClient(opts: {
 export async function listClients(): Promise<OAuthClient[]> {
   const pool = getPool();
   const { rows } = await pool.query<OAuthClientRow>(
-    'SELECT client_id, client_name, client_type, redirect_uris, grant_types, allowed_scopes, allowed_origins, rate_limit, active, created_at, updated_at FROM oauth_clients ORDER BY created_at DESC',
+    'SELECT client_id, client_name, client_type, redirect_uris, grant_types, allowed_scopes, allowed_origins, allowed_sign_methods, rate_limit, active, created_at, updated_at FROM oauth_clients ORDER BY created_at DESC',
   );
   return rows.map(fromRow);
 }
@@ -189,9 +193,7 @@ export async function getAllowedOrigins(): Promise<Set<string>> {
   }
 
   const pool = getPool();
-  const { rows } = await pool.query<AllowedOriginsRow>(
-    'SELECT allowed_origins FROM oauth_clients WHERE active = TRUE',
-  );
+  const { rows } = await pool.query<AllowedOriginsRow>('SELECT allowed_origins FROM oauth_clients WHERE active = TRUE');
 
   const origins = new Set<string>();
   for (const row of rows) {

@@ -28,10 +28,7 @@ describe('Delegate Scope Handler', () => {
       data: [{ balance_as_tao: '150500000000' }],
       pagination: { total_items: 1 },
     });
-    const result = await delegateHandler.verify(
-      coldkey(ALICE),
-      { netuid: 0, hotkey: VALIDATOR },
-    );
+    const result = await delegateHandler.verify(coldkey(ALICE), { netuid: 0, hotkey: VALIDATOR });
     expect(result).toBe(true);
     expect(mockTaostatsGet).toHaveBeenCalledWith(
       '/api/dtao/stake_balance/latest/v1',
@@ -41,10 +38,7 @@ describe('Delegate Scope Handler', () => {
 
   test('returns false when not staked', async () => {
     mockTaostatsGet.mockResolvedValue({ data: [], pagination: { total_items: 0 } });
-    const result = await delegateHandler.verify(
-      coldkey(ALICE),
-      { netuid: 0, hotkey: VALIDATOR },
-    );
+    const result = await delegateHandler.verify(coldkey(ALICE), { netuid: 0, hotkey: VALIDATOR });
     expect(result).toBe(false);
   });
 
@@ -56,16 +50,14 @@ describe('Delegate Scope Handler', () => {
 
   test('aggregates across subnets for minimum', async () => {
     mockTaostatsGet.mockResolvedValue({
-      data: [
-        { balance_as_tao: '80000000000' },
-        { balance_as_tao: '120000000000' },
-      ],
+      data: [{ balance_as_tao: '80000000000' }, { balance_as_tao: '120000000000' }],
       pagination: { total_items: 2 },
     });
-    const result = await delegateHandler.verify(
-      coldkey(ALICE),
-      { netuid: 0, hotkey: VALIDATOR, minAmount: 150n * RAO },
-    );
+    const result = await delegateHandler.verify(coldkey(ALICE), {
+      netuid: 0,
+      hotkey: VALIDATOR,
+      minAmount: 150n * RAO,
+    });
     expect(result).toBe(true);
   });
 
@@ -74,19 +66,17 @@ describe('Delegate Scope Handler', () => {
       data: [{ balance_as_tao: '50000000000' }],
       pagination: { total_items: 1 },
     });
-    const result = await delegateHandler.verify(
-      coldkey(ALICE),
-      { netuid: 0, hotkey: VALIDATOR, minAmount: 100n * RAO },
-    );
+    const result = await delegateHandler.verify(coldkey(ALICE), {
+      netuid: 0,
+      hotkey: VALIDATOR,
+      minAmount: 100n * RAO,
+    });
     expect(result).toBe(false);
   });
 
   test('returns false when Taostats API call fails', async () => {
     mockTaostatsGet.mockRejectedValue(new Error('Taostats unavailable'));
-    const result = await delegateHandler.verify(
-      coldkey(ALICE),
-      { netuid: 0, hotkey: VALIDATOR, minAmount: 1n * RAO },
-    );
+    const result = await delegateHandler.verify(coldkey(ALICE), { netuid: 0, hotkey: VALIDATOR, minAmount: 1n * RAO });
     expect(result).toBe(false);
   });
 });

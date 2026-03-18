@@ -3,7 +3,15 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { createChallenge, consumeChallenge } from '../crypto/challenge';
 import { verifySignatureOrThrow } from '../crypto/signature';
-import { verifyScopes, validateScopes, describeScopes, enforceClientScopes, resolveSignerContext } from '../scopes';
+import { validateAndNormalizeAddress, getClientSignMethod } from '../crypto/address';
+import {
+  verifyScopes,
+  validateScopes,
+  validateScopesForSignMethod,
+  describeScopes,
+  enforceClientScopes,
+  resolveSignerContext,
+} from '../scopes';
 import { getClientById } from '../db/clients';
 import {
   createDeviceCode as dbCreateDeviceCode,
@@ -12,13 +20,23 @@ import {
   cleanupExpiredDeviceCodes as dbCleanupExpired,
   clearDeviceCodes as dbClearDeviceCodes,
 } from '../db/deviceCodes';
-import { AuthError, DeviceCodeError, InvalidAddressError, InvalidClientError } from '../util/errors';
+import { AuthError, DeviceCodeError, InvalidClientError } from '../util/errors';
 import { config } from '../config';
 import { DeviceCodeResponse } from '../types';
-import { escapeHtml, walletBannerHtml, checkWalletScript, authHeaderHtml, poweredByHtml, starryBackgroundHtml } from '../util/html';
+import {
+  escapeHtml,
+  walletBannerHtml,
+  mobileDetectScript,
+  checkWalletScript,
+  checkEthereumWalletScript,
+  ethereumBannerHtml,
+  authHeaderHtml,
+  poweredByHtml,
+  starryBackgroundHtml,
+} from '../util/html';
 import { cssLinks } from '../styles';
 import { testnetBannerHtml } from '../util/testnet';
-import { isValidSS58, applyHtmlSecurityHeaders, generateNonce } from './oauth/shared';
+import { applyHtmlSecurityHeaders, generateNonce } from './oauth/shared';
 import {
   DeviceCodeBodySchema,
   UserCodeQuerySchema,
@@ -42,15 +60,18 @@ function generateUserCode(): string {
 }
 
 function isUniqueConstraintError(err: unknown): err is { code: string } {
-  return typeof err === 'object'
-    && err !== null
-    && 'code' in err
-    && typeof (err as { code?: unknown }).code === 'string';
+  return (
+    typeof err === 'object' && err !== null && 'code' in err && typeof (err as { code?: unknown }).code === 'string'
+  );
 }
 
 export function startDeviceCodeCleanup(intervalMs: number = 60000): void {
   if (cleanupInterval) return;
-  cleanupInterval = setInterval(() => { cleanupPromise = dbCleanupExpired().catch((err) => { console.error('Device code cleanup error:', err.message); }); }, intervalMs);
+  cleanupInterval = setInterval(() => {
+    cleanupPromise = dbCleanupExpired().catch((err) => {
+      console.error('Device code cleanup error:', err.message);
+    });
+  }, intervalMs);
   if (cleanupInterval.unref) cleanupInterval.unref();
 }
 
@@ -94,89 +115,116 @@ export async function clearDeviceCodes(): Promise<void> {
 
 export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /v1/device/code — request a new device code
-  fastify.post('/v1/device/code', {
-    schema: {
-      tags: ['Device Code'],
-      summary: 'Request a device code',
-      body: DeviceCodeBodySchema,
-      response: { 200: DeviceCodeResponseSchema },
-    },
-  }, async (request: FastifyRequest<{
-    Body: z.infer<typeof DeviceCodeBodySchema>;
-  }>, reply: FastifyReply) => {
-    const { client_id, scopes = [] } = request.body;
-
-    const client = await getClientById(client_id);
-    if (!client) {
-      throw new InvalidClientError('Unknown client_id');
-    }
-
-    if (!client.grant_types.includes('urn:ietf:params:oauth:grant-type:device_code') && !client.grant_types.includes('device_code')) {
-      throw new AuthError('Device code grant not allowed for this client', 400, 'Bad Request');
-    }
-
-    if (scopes.length > 0) {
-      validateScopes(scopes);
-      enforceClientScopes(scopes, client.allowed_scopes);
-    }
-
-    const expiresAt = new Date(Date.now() + config.deviceCodeTtlSeconds * 1000);
-    const { deviceCode, userCode } = await createUniqueDeviceCodeRecord(client_id, scopes, expiresAt);
-
-    const response: DeviceCodeResponse = {
-      device_code: deviceCode,
-      user_code: userCode,
-      verification_uri: config.verificationUri,
-      expires_in: config.deviceCodeTtlSeconds,
-      interval: config.deviceCodePollInterval,
-    };
-
-    return reply.code(200).send(response);
-  });
-
-  // GET /v1/device/scopes — look up scopes for a user_code (used by the verify page)
-  fastify.get('/v1/device/scopes', {
-    schema: {
-      tags: ['Device Code'],
-      summary: 'Look up scopes for a user code',
-      querystring: UserCodeQuerySchema,
-    },
-    config: {
-      rateLimit: {
-        max: 30,
-        timeWindow: '1 minute',
+  fastify.post(
+    '/v1/device/code',
+    {
+      schema: {
+        tags: ['Device Code'],
+        summary: 'Request a device code',
+        body: DeviceCodeBodySchema,
+        response: { 200: DeviceCodeResponseSchema },
       },
     },
-  }, async (request: FastifyRequest<{
-    Querystring: z.infer<typeof UserCodeQuerySchema>;
-  }>, reply: FastifyReply) => {
-    const { user_code } = request.query;
+    async (
+      request: FastifyRequest<{
+        Body: z.infer<typeof DeviceCodeBodySchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const { client_id, scopes = [] } = request.body;
 
-    const found = await getDeviceCodeByUserCode(user_code);
-    if (found) {
-      return reply.code(200).send({
-        scopes: found.scopes,
-        descriptions: describeScopes(found.scopes),
-      });
-    }
+      const client = await getClientById(client_id);
+      if (!client) {
+        throw new InvalidClientError('Unknown client_id');
+      }
 
-    return reply.code(404).send({ error: 'Invalid or expired user code' });
-  });
+      if (
+        !client.grant_types.includes('urn:ietf:params:oauth:grant-type:device_code') &&
+        !client.grant_types.includes('device_code')
+      ) {
+        throw new AuthError('Device code grant not allowed for this client', 400, 'Bad Request');
+      }
+
+      validateScopesForSignMethod(scopes, getClientSignMethod(client.allowed_sign_methods));
+
+      if (scopes.length > 0) {
+        validateScopes(scopes);
+        enforceClientScopes(scopes, client.allowed_scopes);
+      }
+
+      const expiresAt = new Date(Date.now() + config.deviceCodeTtlSeconds * 1000);
+      const { deviceCode, userCode } = await createUniqueDeviceCodeRecord(client_id, scopes, expiresAt);
+
+      const response: DeviceCodeResponse = {
+        device_code: deviceCode,
+        user_code: userCode,
+        verification_uri: config.verificationUri,
+        expires_in: config.deviceCodeTtlSeconds,
+        interval: config.deviceCodePollInterval,
+      };
+
+      return reply.code(200).send(response);
+    },
+  );
+
+  // GET /v1/device/scopes — look up scopes for a user_code (used by the verify page)
+  fastify.get(
+    '/v1/device/scopes',
+    {
+      schema: {
+        tags: ['Device Code'],
+        summary: 'Look up scopes for a user code',
+        querystring: UserCodeQuerySchema,
+      },
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: '1 minute',
+        },
+      },
+    },
+    async (
+      request: FastifyRequest<{
+        Querystring: z.infer<typeof UserCodeQuerySchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const { user_code } = request.query;
+
+      const found = await getDeviceCodeByUserCode(user_code);
+      if (found) {
+        const deviceClient = await getClientById(found.clientId);
+        return reply.code(200).send({
+          scopes: found.scopes,
+          descriptions: describeScopes(found.scopes),
+          sign_method: getClientSignMethod(deviceClient?.allowed_sign_methods),
+        });
+      }
+
+      return reply.code(404).send({ error: 'Invalid or expired user code' });
+    },
+  );
 
   // GET /v1/device/verify — page where user enters user_code and signs
-  fastify.get('/v1/device/verify', {
-    schema: {
-      tags: ['Device Code'],
-      summary: 'User-facing approval page',
-      querystring: OptionalUserCodeQuerySchema,
+  fastify.get(
+    '/v1/device/verify',
+    {
+      schema: {
+        tags: ['Device Code'],
+        summary: 'User-facing approval page',
+        querystring: OptionalUserCodeQuerySchema,
+      },
     },
-  }, async (request: FastifyRequest<{
-    Querystring: z.infer<typeof OptionalUserCodeQuerySchema>;
-  }>, reply: FastifyReply) => {
-    const { user_code } = request.query;
-    const cspNonce = generateNonce();
+    async (
+      request: FastifyRequest<{
+        Querystring: z.infer<typeof OptionalUserCodeQuerySchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const { user_code } = request.query;
+      const cspNonce = generateNonce();
 
-    const html = `<!DOCTYPE html>
+      const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -189,6 +237,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
   ${testnetBannerHtml()}
   ${authHeaderHtml}
   ${walletBannerHtml()}
+  ${ethereumBannerHtml()}
   <div class="auth-card">
     <h1>Device Authorization</h1>
     <p style="margin-bottom:1rem;color:var(--text-secondary);font-size:0.95rem;">Enter the code shown on your device:</p>
@@ -232,8 +281,11 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
     let cliNonce = null;
     let cliExpiryTimer = null;
     let loadedScopes = [];
+    let loadedSignMethod = 'sr25519';
 
+    ${mobileDetectScript()}
     ${checkWalletScript()}
+    ${checkEthereumWalletScript()}
 
     // Auto-load scopes if user_code is pre-filled
     if (document.getElementById('user-code').value.trim()) {
@@ -263,6 +315,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
         if (!res.ok) return;
         const data = await res.json();
         loadedScopes = data.scopes || [];
+        loadedSignMethod = data.sign_method || 'sr25519';
         const box = document.getElementById('scopes-box');
         const list = document.getElementById('scopes-list');
         list.innerHTML = '';
@@ -281,6 +334,23 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
             list.appendChild(div);
           });
           box.style.display = 'block';
+        }
+
+        // Update UI based on sign method
+        var btn = document.getElementById('btn-authorize');
+        var cliLink = document.getElementById('link-show-cli');
+        if (loadedSignMethod === 'evm') {
+          if (btn) { btn.textContent = 'Sign with MetaMask'; btn.disabled = !window.ethereum; }
+          if (cliLink) cliLink.style.display = 'none';
+          var ethBanner = document.getElementById('eth-banner');
+          var walletBanner = document.getElementById('wallet-banner');
+          if (!window.ethereum && ethBanner) ethBanner.style.display = 'flex';
+          if (walletBanner) walletBanner.style.display = 'none';
+        } else {
+          if (btn) { btn.textContent = 'Sign with browser wallet'; btn.disabled = false; }
+          if (cliLink) cliLink.style.display = '';
+          var ethBanner2 = document.getElementById('eth-banner');
+          if (ethBanner2) ethBanner2.style.display = 'none';
         }
       } catch {}
     }
@@ -312,43 +382,73 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
       const btn = document.getElementById('btn-authorize');
       btn.disabled = true;
       btn.textContent = 'Connecting...';
+      const btnLabel = loadedSignMethod === 'evm' ? 'Sign with MetaMask' : 'Sign with browser wallet';
       try {
         const userCode = document.getElementById('user-code').value.trim().toUpperCase();
-        if (!userCode) { showError('Please enter a code'); btn.disabled = false; btn.textContent = 'Sign with browser wallet'; return; }
+        if (!userCode) { showError('Please enter a code'); btn.disabled = false; btn.textContent = btnLabel; return; }
 
-        const { web3Enable, web3Accounts, web3FromAddress } = await import('/static/extension-dapp.js');
-        const extensions = await web3Enable('Taostats Auth');
-        if (extensions.length === 0) { showError('No wallet extension found. Install the Taostats Wallet to sign with your browser.'); btn.disabled = false; btn.textContent = 'Sign with browser wallet'; return; }
-        const accounts = await web3Accounts();
-        if (accounts.length === 0) { showError('No accounts found'); btn.disabled = false; btn.textContent = 'Sign with browser wallet'; return; }
+        var address, signature, nonce;
 
-        let address;
-        if (accounts.length > 1) {
-          address = await pickAccount(accounts);
+        if (loadedSignMethod === 'evm') {
+          // MetaMask flow
+          if (!window.ethereum) { showError('No Ethereum wallet found. Install MetaMask.'); btn.disabled = false; btn.textContent = btnLabel; return; }
+          var ethAccounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+          if (!ethAccounts || ethAccounts.length === 0) { showError('No accounts found'); btn.disabled = false; btn.textContent = btnLabel; return; }
+
+          if (ethAccounts.length > 1) {
+            address = await pickAccount(ethAccounts.map(function(a) { return { address: a, meta: { name: '' } }; }));
+          } else {
+            address = ethAccounts[0];
+          }
+
+          btn.textContent = 'Signing...';
+
+          var approveRes = await fetch('/v1/device/approve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_code: userCode, address: address }),
+          });
+          if (!approveRes.ok) { var e1 = await approveRes.json(); throw new Error(e1.message); }
+          var approveData = await approveRes.json();
+          nonce = approveData.nonce;
+
+          signature = await window.ethereum.request({
+            method: 'personal_sign',
+            params: [nonce, address],
+          });
         } else {
-          address = accounts[0].address;
+          // Taostats wallet flow
+          const { web3Enable, web3Accounts, web3FromAddress } = await import('/static/extension-dapp.js');
+          const extensions = await web3Enable('Taostats Auth');
+          if (extensions.length === 0) { showError('No wallet extension found. Install the Taostats Wallet to sign with your browser.'); btn.disabled = false; btn.textContent = btnLabel; return; }
+          var polkaAccounts = await web3Accounts();
+          if (polkaAccounts.length === 0) { showError('No accounts found'); btn.disabled = false; btn.textContent = btnLabel; return; }
+
+          if (polkaAccounts.length > 1) {
+            address = await pickAccount(polkaAccounts);
+          } else {
+            address = polkaAccounts[0].address;
+          }
+
+          btn.textContent = 'Signing...';
+
+          var res = await fetch('/v1/device/approve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_code: userCode, address: address }),
+          });
+          if (!res.ok) { var e2 = await res.json(); throw new Error(e2.message); }
+          var resData = await res.json();
+          nonce = resData.nonce;
+
+          var injector = await web3FromAddress(address);
+          var sigResult = await injector.signer.signRaw({
+            address: address,
+            data: nonce,
+            type: 'bytes',
+          });
+          signature = sigResult.signature;
         }
-
-        btn.textContent = 'Signing...';
-
-        // Approve device code
-        const res = await fetch('/v1/device/approve', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_code: userCode, address }),
-        });
-
-        if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
-
-        const { nonce } = await res.json();
-
-        // Sign the challenge
-        const injector = await web3FromAddress(address);
-        const { signature } = await injector.signer.signRaw({
-          address,
-          data: nonce,
-          type: 'bytes',
-        });
 
         btn.textContent = 'Verifying...';
 
@@ -356,16 +456,16 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
         const confirmRes = await fetch('/v1/device/confirm', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_code: userCode, address, nonce, signature }),
+          body: JSON.stringify({ user_code: userCode, address: address, nonce: nonce, signature: signature }),
         });
 
-        if (!confirmRes.ok) { const e = await confirmRes.json(); throw new Error(e.message); }
+        if (!confirmRes.ok) { const e3 = await confirmRes.json(); throw new Error(e3.message); }
 
         showSuccess('Device authorized! You can close this window.');
       } catch (err) {
         showError(err.message);
         btn.disabled = false;
-        btn.textContent = 'Sign with browser wallet';
+        btn.textContent = btnLabel;
       }
     }
 
@@ -482,92 +582,120 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
 </body>
 </html>`;
 
-    return applyHtmlSecurityHeaders(reply, cspNonce).header('Content-Type', 'text/html').code(200).send(html);
-  });
+      return applyHtmlSecurityHeaders(reply, cspNonce).header('Content-Type', 'text/html').code(200).send(html);
+    },
+  );
 
   // POST /v1/device/approve — initiate approval (creates challenge for signing)
-  fastify.post('/v1/device/approve', {
-    schema: {
-      tags: ['Device Code'],
-      summary: 'Initiate device approval',
-      body: DeviceApproveBodySchema,
-    },
-    config: {
-      rateLimit: {
-        max: config.rateLimitChallenge,
-        timeWindow: '1 minute',
+  fastify.post(
+    '/v1/device/approve',
+    {
+      schema: {
+        tags: ['Device Code'],
+        summary: 'Initiate device approval',
+        body: DeviceApproveBodySchema,
+      },
+      config: {
+        rateLimit: {
+          max: config.rateLimitChallenge,
+          timeWindow: '1 minute',
+        },
       },
     },
-  }, async (request: FastifyRequest<{
-    Body: z.infer<typeof DeviceApproveBodySchema>;
-  }>, reply: FastifyReply) => {
-    const { user_code, address } = request.body;
+    async (
+      request: FastifyRequest<{
+        Body: z.infer<typeof DeviceApproveBodySchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const { user_code, address: rawAddress } = request.body;
 
-    if (!isValidSS58(address)) {
-      throw new InvalidAddressError();
-    }
+      const found = await getDeviceCodeByUserCode(user_code);
 
-    const found = await getDeviceCodeByUserCode(user_code);
+      if (!found) {
+        throw new DeviceCodeError('Invalid or expired user code', 404);
+      }
 
-    if (!found) {
-      throw new DeviceCodeError('Invalid or expired user code', 404);
-    }
+      // Look up client to determine sign method
+      const approveClient = await getClientById(found.clientId);
+      const clientMethod = getClientSignMethod(approveClient?.allowed_sign_methods);
+      const { address, method } = validateAndNormalizeAddress(rawAddress);
 
-    if (new Date() > found.expiresAt) {
-      throw new DeviceCodeError('Device code expired', 401);
-    }
+      if (method !== clientMethod) {
+        throw new AuthError(`This client requires ${clientMethod} wallet signing`, 400, 'Bad Request');
+      }
 
-    const challenge = await createChallenge(address, found.scopes);
+      if (new Date() > found.expiresAt) {
+        throw new DeviceCodeError('Device code expired', 401);
+      }
 
-    return reply.code(200).send({ nonce: challenge.nonce });
-  });
+      const challenge = await createChallenge(address, found.scopes);
+
+      return reply.code(200).send({ nonce: challenge.nonce });
+    },
+  );
 
   // POST /v1/device/confirm — confirm approval with signature
-  fastify.post('/v1/device/confirm', {
-    schema: {
-      tags: ['Device Code'],
-      summary: 'Confirm device approval with signature',
-      body: DeviceConfirmBodySchema,
-    },
-    config: {
-      rateLimit: {
-        max: config.rateLimitChallenge,
-        timeWindow: '1 minute',
+  fastify.post(
+    '/v1/device/confirm',
+    {
+      schema: {
+        tags: ['Device Code'],
+        summary: 'Confirm device approval with signature',
+        body: DeviceConfirmBodySchema,
+      },
+      config: {
+        rateLimit: {
+          max: config.rateLimitChallenge,
+          timeWindow: '1 minute',
+        },
       },
     },
-  }, async (request: FastifyRequest<{
-    Body: z.infer<typeof DeviceConfirmBodySchema>;
-  }>, reply: FastifyReply) => {
-    const { user_code, address, nonce, signature } = request.body;
+    async (
+      request: FastifyRequest<{
+        Body: z.infer<typeof DeviceConfirmBodySchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const { user_code, address: rawAddress, nonce, signature } = request.body;
 
-    if (!isValidSS58(address)) {
-      throw new InvalidAddressError();
-    }
+      const { address, method } = validateAndNormalizeAddress(rawAddress);
 
-    const found = await getDeviceCodeByUserCode(user_code);
+      const found = await getDeviceCodeByUserCode(user_code);
 
-    if (!found) {
-      throw new DeviceCodeError('Invalid or expired user code', 404);
-    }
+      if (!found) {
+        throw new DeviceCodeError('Invalid or expired user code', 404);
+      }
 
-    // Consume challenge and verify signature
-    const challenge = await consumeChallenge(nonce);
+      // Enforce client sign method
+      const confirmClient = await getClientById(found.clientId);
+      const confirmMethod = getClientSignMethod(confirmClient?.allowed_sign_methods);
+      if (method !== confirmMethod) {
+        throw new AuthError(`This client requires ${confirmMethod} wallet signing`, 400, 'Bad Request');
+      }
 
-    if (challenge.address && challenge.address !== address) {
-      throw new AuthError('Address mismatch', 401, 'Unauthorized');
-    }
+      // Consume challenge and verify signature (method-aware)
+      const challenge = await consumeChallenge(nonce);
 
-    verifySignatureOrThrow(nonce, signature, address);
+      if (challenge.address && challenge.address !== address) {
+        throw new AuthError('Address mismatch', 401, 'Unauthorized');
+      }
 
-    // Resolve signer context and verify scopes
-    const signerCtx = await resolveSignerContext(address);
-    if (found.scopes.length > 0) {
-      await verifyScopes(signerCtx, found.scopes);
-    }
+      await verifySignatureOrThrow(nonce, signature, address, method);
 
-    // Mark as approved in DB
-    await approveDeviceCode(user_code, address);
+      // Resolve signer context and verify scopes (skip for EVM)
+      const isEvm = method === 'evm';
+      if (!isEvm) {
+        const signerCtx = await resolveSignerContext(address);
+        if (found.scopes.length > 0) {
+          await verifyScopes(signerCtx, found.scopes);
+        }
+      }
 
-    return reply.code(200).send({ status: 'approved' });
-  });
+      // Mark as approved in DB
+      await approveDeviceCode(user_code, address);
+
+      return reply.code(200).send({ status: 'approved' });
+    },
+  );
 }

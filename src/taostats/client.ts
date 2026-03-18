@@ -25,7 +25,7 @@ const cache = new BoundedMap<string, CacheEntry>(
 );
 
 function buildCacheKey(path: string, params: Record<string, string>): string {
-  const sorted = Object.entries(params).sort(([a], [b]) => a.localeCompare(b));
+  const sorted = Object.entries(params).toSorted(([a], [b]) => a.localeCompare(b));
   return `${path}?${sorted.map(([k, v]) => `${k}=${v}`).join('&')}`;
 }
 
@@ -43,14 +43,9 @@ export function taoStringToRao(s: string): bigint {
  * Fetch from the Taostats API with auth, timeout, and 60s cache.
  * Throws if TAOSTATS_API_KEY is not configured.
  */
-export async function taostatsGet<T>(
-  path: string,
-  params: Record<string, string>,
-): Promise<TaostatsApiResponse<T>> {
+export async function taostatsGet<T>(path: string, params: Record<string, string>): Promise<TaostatsApiResponse<T>> {
   if (!config.taostatsApiKey) {
-    throw new Error(
-      'TAOSTATS_API_KEY is required for Taostats API scopes',
-    );
+    throw new Error('TAOSTATS_API_KEY is required for Taostats API scopes');
   }
 
   const cacheKey = buildCacheKey(path, params);

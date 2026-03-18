@@ -20,9 +20,7 @@ function resolveStaticDir(): string {
 const staticDir = resolveStaticDir();
 
 // Cache static files at startup to avoid readFileSync on every request
-const faviconBuf = existsSync(join(staticDir, 'favicon.ico'))
-  ? readFileSync(join(staticDir, 'favicon.ico'))
-  : null;
+const faviconBuf = existsSync(join(staticDir, 'favicon.ico')) ? readFileSync(join(staticDir, 'favicon.ico')) : null;
 const thumbnailBuf = existsSync(join(staticDir, 'thumbnail.png'))
   ? readFileSync(join(staticDir, 'thumbnail.png'))
   : null;
@@ -626,7 +624,8 @@ done
 }
 
 /** CSP for landing pages (no polkadot extension needed) */
-const LANDING_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+const LANDING_CSP =
+  "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
 export async function landingRoutes(fastify: FastifyInstance): Promise<void> {
   // GET /static/styles.css — shared stylesheet
@@ -669,23 +668,27 @@ export async function landingRoutes(fastify: FastifyInstance): Promise<void> {
   });
 
   // GET /static/fonts/:file — self-hosted Everett font files
-  fastify.get('/static/fonts/:file', async (request: FastifyRequest<{
-    Params: { file: string };
-  }>, reply: FastifyReply) => {
-    const name = request.params.file.replace(/\.woff2$/, '');
-    const buf = fontFiles[name];
-    if (!buf) return reply.code(404).send();
-    return reply
-      .header('Content-Type', 'font/woff2')
-      .header('Cache-Control', 'public, max-age=31536000, immutable')
-      .code(200)
-      .send(buf);
-  });
+  fastify.get(
+    '/static/fonts/:file',
+    async (
+      request: FastifyRequest<{
+        Params: { file: string };
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const name = request.params.file.replace(/\.woff2$/, '');
+      const buf = fontFiles[name];
+      if (!buf) return reply.code(404).send();
+      return reply
+        .header('Content-Type', 'font/woff2')
+        .header('Cache-Control', 'public, max-age=31536000, immutable')
+        .code(200)
+        .send(buf);
+    },
+  );
 
   fastify.get('/', async (_request: FastifyRequest, reply: FastifyReply) => {
-    const html = config.demoMode && demoClients
-      ? demoPage(demoClients.webClientId)
-      : productionPage();
+    const html = config.demoMode && demoClients ? demoPage(demoClients.webClientId) : productionPage();
 
     return reply
       .header('Content-Type', 'text/html')

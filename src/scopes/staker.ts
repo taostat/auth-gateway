@@ -17,10 +17,10 @@ export const stakerHandler: ScopeHandler = {
 
     let result;
     try {
-      result = await taostatsGet<AggregatedStakeEntry>(
-        '/api/dtao/stake_balance_aggregated/latest/v1',
-        { coldkey: ctx.coldkey, limit: '1' },
-      );
+      result = await taostatsGet<AggregatedStakeEntry>('/api/dtao/stake_balance_aggregated/latest/v1', {
+        coldkey: ctx.coldkey!,
+        limit: '1',
+      });
     } catch (err) {
       console.warn(`Staker scope check failed for ${ctx.coldkey}:`, err);
       return false;

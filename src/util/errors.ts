@@ -44,8 +44,8 @@ export class InvalidSignatureError extends AuthError {
 }
 
 export class InvalidAddressError extends AuthError {
-  constructor() {
-    super('Invalid SS58 address', 400, 'Bad Request');
+  constructor(message: string = 'Invalid SS58 address') {
+    super(message, 400, 'Bad Request');
     this.name = 'InvalidAddressError';
   }
 }
@@ -80,7 +80,11 @@ export class InvalidRedirectError extends AuthError {
 
 export class PkceRequiredError extends AuthError {
   constructor() {
-    super('PKCE is required for public clients (code_challenge and code_challenge_method=S256)', 400, OAuthErrorCode.INVALID_REQUEST);
+    super(
+      'PKCE is required for public clients (code_challenge and code_challenge_method=S256)',
+      400,
+      OAuthErrorCode.INVALID_REQUEST,
+    );
     this.name = 'PkceRequiredError';
   }
 }

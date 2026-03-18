@@ -33,26 +33,19 @@ describe('TAO Holder Scope Handler', () => {
   });
 
   test('meets minimum TAO threshold', async () => {
-    const result = await taoHolderHandler.verify(
-      coldkey(ALICE),
-      { netuid: 0, minAmount: 100n * RAO },
-    );
+    const result = await taoHolderHandler.verify(coldkey(ALICE), { netuid: 0, minAmount: 100n * RAO });
     expect(result).toBe(true);
   });
 
   test('fails when below minimum TAO threshold', async () => {
-    const result = await taoHolderHandler.verify(
-      coldkey(ALICE),
-      { netuid: 0, minAmount: 500n * RAO },
-    );
+    const result = await taoHolderHandler.verify(coldkey(ALICE), { netuid: 0, minAmount: 500n * RAO });
     expect(result).toBe(false);
   });
 
   test('unknown address returns false', async () => {
-    const result = await taoHolderHandler.verify(
-      coldkey('5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy'),
-      { netuid: 0 },
-    );
+    const result = await taoHolderHandler.verify(coldkey('5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy'), {
+      netuid: 0,
+    });
     expect(result).toBe(false);
   });
 });

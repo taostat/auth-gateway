@@ -18,7 +18,11 @@ export async function isAuthCodeConsumed(jti: string): Promise<boolean> {
 
 export function startAuthCodeCleanup(intervalMs: number = 60000): void {
   if (cleanupInterval) return;
-  cleanupInterval = setInterval(() => { cleanupPromise = dbCleanup().catch((err) => { console.error('Auth code cleanup failed:', err); }); }, intervalMs);
+  cleanupInterval = setInterval(() => {
+    cleanupPromise = dbCleanup().catch((err) => {
+      console.error('Auth code cleanup failed:', err);
+    });
+  }, intervalMs);
   if (cleanupInterval.unref) cleanupInterval.unref();
 }
 

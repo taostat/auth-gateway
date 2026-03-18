@@ -5,11 +5,7 @@ import rateLimit from '@fastify/rate-limit';
 import formbody from '@fastify/formbody';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
-import {
-  validatorCompiler,
-  serializerCompiler,
-  jsonSchemaTransform,
-} from 'fastify-type-provider-zod';
+import { validatorCompiler, serializerCompiler, jsonSchemaTransform } from 'fastify-type-provider-zod';
 import path from 'node:path';
 import { config } from './config';
 import { loadKeys } from './crypto/keys';
@@ -78,7 +74,8 @@ async function main(): Promise<void> {
     openapi: {
       info: {
         title: 'Taostats Auth Gateway',
-        description: 'Substrate wallet authentication with on-chain scope verification for the Bittensor network. Issued JWTs include `hotkey` and `coldkey` claims resolved from the Subtensor chain, allowing downstream services to identify both keys from a single wallet signature.',
+        description:
+          'Substrate wallet authentication with on-chain scope verification for the Bittensor network. Issued JWTs include `hotkey` and `coldkey` claims resolved from the Subtensor chain, allowing downstream services to identify both keys from a single wallet signature.',
         version: '1.0.0',
       },
       components: {
@@ -126,7 +123,9 @@ async function main(): Promise<void> {
         try {
           const url = new URL(origin);
           if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') return true;
-        } catch { /* invalid origin */ }
+        } catch {
+          /* invalid origin */
+        }
       }
 
       return false;
@@ -150,10 +149,12 @@ async function main(): Promise<void> {
 
   await server.register(formbody);
 
-  server.setErrorHandler(createErrorHandler({
-    hideInternalErrors: config.nodeEnv === 'production',
-    logErrors: true,
-  }));
+  server.setErrorHandler(
+    createErrorHandler({
+      hideInternalErrors: config.nodeEnv === 'production',
+      logErrors: true,
+    }),
+  );
 
   // Register routes
   await registerRoutes(server);
