@@ -3,7 +3,7 @@ import { getTestEvmAddress, signWithTestEvmWallet } from '../helpers/evmSign';
 
 describe('EVM Signature Verification', () => {
   test('valid EVM signature is accepted', async () => {
-    const message = 'bittensor-auth:none:test-nonce';
+    const message = 'taostats-auth:none:test-nonce';
     const address = getTestEvmAddress();
     const signature = await signWithTestEvmWallet(message);
 
@@ -12,7 +12,7 @@ describe('EVM Signature Verification', () => {
   });
 
   test('invalid signature is rejected', async () => {
-    const message = 'bittensor-auth:none:test-nonce';
+    const message = 'taostats-auth:none:test-nonce';
     const address = getTestEvmAddress();
     const badSig = '0x' + '00'.repeat(65);
 
@@ -29,7 +29,7 @@ describe('EVM Signature Verification', () => {
   });
 
   test('valid signature with wrong address is rejected', async () => {
-    const message = 'bittensor-auth:none:test-nonce';
+    const message = 'taostats-auth:none:test-nonce';
     const signature = await signWithTestEvmWallet(message);
     const wrongAddress = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
 
