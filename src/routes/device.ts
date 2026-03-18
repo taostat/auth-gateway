@@ -340,7 +340,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
         var btn = document.getElementById('btn-authorize');
         var cliLink = document.getElementById('link-show-cli');
         if (loadedSignMethod === 'evm') {
-          if (btn) { btn.textContent = 'Sign with MetaMask'; btn.disabled = !window.ethereum; }
+          if (btn) { btn.textContent = 'Sign with Ethereum'; btn.disabled = !window.ethereum; }
           if (cliLink) cliLink.style.display = 'none';
           var ethBanner = document.getElementById('eth-banner');
           var walletBanner = document.getElementById('wallet-banner');
@@ -382,7 +382,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
       const btn = document.getElementById('btn-authorize');
       btn.disabled = true;
       btn.textContent = 'Connecting...';
-      const btnLabel = loadedSignMethod === 'evm' ? 'Sign with MetaMask' : 'Sign with browser wallet';
+      const btnLabel = loadedSignMethod === 'evm' ? 'Sign with Ethereum' : 'Sign with browser wallet';
       try {
         const userCode = document.getElementById('user-code').value.trim().toUpperCase();
         if (!userCode) { showError('Please enter a code'); btn.disabled = false; btn.textContent = btnLabel; return; }
@@ -390,8 +390,8 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
         var address, signature, nonce;
 
         if (loadedSignMethod === 'evm') {
-          // MetaMask flow
-          if (!window.ethereum) { showError('No Ethereum wallet found. Install MetaMask.'); btn.disabled = false; btn.textContent = btnLabel; return; }
+          // Ethereum wallet flow
+          if (!window.ethereum) { showError('No Ethereum wallet found'); btn.disabled = false; btn.textContent = btnLabel; return; }
           var ethAccounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
           if (!ethAccounts || ethAccounts.length === 0) { showError('No accounts found'); btn.disabled = false; btn.textContent = btnLabel; return; }
 

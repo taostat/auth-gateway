@@ -172,7 +172,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       </div>
       <div class="btn-row">
         <button class="btn-deny" id="btn-deny">Deny</button>
-        <button class="btn-authorize" id="btn-authorize" disabled>Sign with MetaMask</button>
+        <button class="btn-authorize" id="btn-authorize" disabled>Sign with Ethereum</button>
       </div>
     </div>`
         : `<div id="browser-flow">
@@ -248,10 +248,10 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         var address, signature, nonce;
 
         if (CONFIG.signMethod === 'evm') {
-          // EVM / MetaMask flow
-          if (!window.ethereum) { showError('No Ethereum wallet found. Install MetaMask.'); btn.disabled = false; btn.textContent = 'Sign with MetaMask'; return; }
+          // Ethereum wallet flow
+          if (!window.ethereum) { showError('No Ethereum wallet found'); btn.disabled = false; btn.textContent = 'Sign with Ethereum'; return; }
           const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-          if (!accounts || accounts.length === 0) { showError('No accounts found'); btn.disabled = false; btn.textContent = 'Sign with MetaMask'; return; }
+          if (!accounts || accounts.length === 0) { showError('No accounts found'); btn.disabled = false; btn.textContent = 'Sign with Ethereum'; return; }
 
           if (accounts.length > 1) {
             address = await pickAccount(accounts.map(function(a) { return { address: a, meta: { name: '' } }; }));
@@ -340,7 +340,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       } catch (err) {
         showError(err.message);
         btn.disabled = false;
-        btn.textContent = CONFIG.signMethod === 'evm' ? 'Sign with MetaMask' : 'Sign with browser wallet';
+        btn.textContent = CONFIG.signMethod === 'evm' ? 'Sign with Ethereum' : 'Sign with browser wallet';
       }
     }
 
