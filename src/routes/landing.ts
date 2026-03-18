@@ -204,7 +204,7 @@ function demoPage(clients: DemoClients): string {
 
     <div class="card" style="margin-top:1rem;">
       <h3>About EVM Sign-In</h3>
-      <p style="color:var(--text-secondary);font-size:0.9rem;">Ethereum wallets can authenticate via EIP-191 <code>personal_sign</code>. EVM clients are limited to the <code>openid</code> scope — on-chain Bittensor role verification requires a Bittensor wallet.</p>
+      <p style="color:var(--text-secondary);font-size:0.9rem;">Ethereum wallets authenticate via EIP-191 <code>personal_sign</code>. EVM clients are limited to the <code>openid</code> scope.</p>
     </div>
   </div>
 

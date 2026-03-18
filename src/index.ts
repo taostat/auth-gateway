@@ -75,7 +75,7 @@ async function main(): Promise<void> {
       info: {
         title: 'Taostats Auth Gateway',
         description:
-          'Substrate wallet authentication with on-chain scope verification for the Bittensor network. Issued JWTs include `hotkey` and `coldkey` claims resolved from the Subtensor chain, allowing downstream services to identify both keys from a single wallet signature.',
+          'Bittensor and Ethereum wallet authentication with on-chain scope verification. Supports sr25519 (Bittensor) and EVM (Ethereum) wallet signatures. JWTs include `hotkey`/`coldkey` claims for Bittensor wallets and `evm_address` for Ethereum wallets.',
         version: '1.0.0',
       },
       components: {
