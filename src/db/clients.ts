@@ -193,9 +193,7 @@ export async function getAllowedOrigins(): Promise<Set<string>> {
   }
 
   const pool = getPool();
-  const { rows } = await pool.query<AllowedOriginsRow>(
-    'SELECT allowed_origins FROM oauth_clients WHERE active = TRUE',
-  );
+  const { rows } = await pool.query<AllowedOriginsRow>('SELECT allowed_origins FROM oauth_clients WHERE active = TRUE');
 
   const origins = new Set<string>();
   for (const row of rows) {

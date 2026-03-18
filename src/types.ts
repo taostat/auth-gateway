@@ -1,9 +1,4 @@
-export type {
-  TokenResponse,
-  ChallengeResponse,
-  DeviceCodeResponse,
-  HealthResponse,
-} from './schemas/responses';
+export type { TokenResponse, ChallengeResponse, DeviceCodeResponse, HealthResponse } from './schemas/responses';
 
 export interface AuthChallenge {
   nonce: string;

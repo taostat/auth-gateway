@@ -1,4 +1,9 @@
-import { generateS256Challenge, verifyCodeVerifier, validateCodeVerifier, validateCodeChallenge } from '../../crypto/pkce';
+import {
+  generateS256Challenge,
+  verifyCodeVerifier,
+  validateCodeVerifier,
+  validateCodeChallenge,
+} from '../../crypto/pkce';
 import crypto from 'crypto';
 
 describe('PKCE (RFC 7636)', () => {

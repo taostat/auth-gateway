@@ -80,7 +80,11 @@ export class InvalidRedirectError extends AuthError {
 
 export class PkceRequiredError extends AuthError {
   constructor() {
-    super('PKCE is required for public clients (code_challenge and code_challenge_method=S256)', 400, OAuthErrorCode.INVALID_REQUEST);
+    super(
+      'PKCE is required for public clients (code_challenge and code_challenge_method=S256)',
+      400,
+      OAuthErrorCode.INVALID_REQUEST,
+    );
     this.name = 'PkceRequiredError';
   }
 }

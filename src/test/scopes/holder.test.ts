@@ -33,34 +33,24 @@ describe('Holder Scope Handler', () => {
   });
 
   test('address with no alpha entry returns false', async () => {
-    const result = await holderHandler.verify(
-      coldkey('5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy'),
-      { netuid: 1 },
-    );
+    const result = await holderHandler.verify(coldkey('5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy'), {
+      netuid: 1,
+    });
     expect(result).toBe(false);
   });
 
   test('meets minimum amount threshold', async () => {
-    const result = await holderHandler.verify(
-      coldkey(ALICE),
-      { netuid: 1, minAmount: 100n * RAO },
-    );
+    const result = await holderHandler.verify(coldkey(ALICE), { netuid: 1, minAmount: 100n * RAO });
     expect(result).toBe(true);
   });
 
   test('fails when below minimum amount threshold', async () => {
-    const result = await holderHandler.verify(
-      coldkey(ALICE),
-      { netuid: 1, minAmount: 1000n * RAO },
-    );
+    const result = await holderHandler.verify(coldkey(ALICE), { netuid: 1, minAmount: 1000n * RAO });
     expect(result).toBe(false);
   });
 
   test('exact minimum amount passes', async () => {
-    const result = await holderHandler.verify(
-      coldkey(ALICE),
-      { netuid: 1, minAmount: 500n * RAO },
-    );
+    const result = await holderHandler.verify(coldkey(ALICE), { netuid: 1, minAmount: 500n * RAO });
     expect(result).toBe(true);
   });
 });

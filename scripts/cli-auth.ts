@@ -52,8 +52,7 @@ function decodeJwtPayload(token: string): any {
 }
 
 function openBrowser(url: string) {
-  const cmd = process.platform === 'darwin' ? 'open' :
-              process.platform === 'win32' ? 'start' : 'xdg-open';
+  const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
   exec(`${cmd} "${url}"`);
 }
 
@@ -124,8 +123,8 @@ async function main() {
     const oauthError = data?.error;
 
     if (
-      (pollRes.status === 400 || pollRes.status === 428)
-      && (oauthError === 'authorization_pending' || oauthError === 'slow_down')
+      (pollRes.status === 400 || pollRes.status === 428) &&
+      (oauthError === 'authorization_pending' || oauthError === 'slow_down')
     ) {
       process.stdout.write(dim('.'));
       continue;

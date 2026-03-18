@@ -8,10 +8,7 @@ interface RateWindow {
 
 const WINDOW_MS = 60_000; // 1 minute
 
-const counters = new BoundedMap<string, RateWindow>(
-  10_000,
-  (entry) => Date.now() - entry.windowStart > WINDOW_MS,
-);
+const counters = new BoundedMap<string, RateWindow>(10_000, (entry) => Date.now() - entry.windowStart > WINDOW_MS);
 
 /**
  * Check per-client rate limit. Throws 429 if the client has exceeded

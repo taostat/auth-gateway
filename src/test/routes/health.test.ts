@@ -2,7 +2,6 @@ import { setupMockDb, createTestClient, addTestClient, clearTestClients } from '
 
 setupMockDb();
 
-
 jest.mock('../../subtensor/client', () => ({
   getSubtensorApi: jest.fn(),
   disconnectSubtensor: jest.fn().mockResolvedValue(undefined),

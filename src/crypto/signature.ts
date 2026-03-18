@@ -4,11 +4,7 @@ import { verifyMessage } from 'viem';
 import { InvalidSignatureError } from '../util/errors';
 import { SignMethod } from './address';
 
-export function verifySr25519Signature(
-  message: string,
-  signature: string,
-  address: string,
-): boolean {
+export function verifySr25519Signature(message: string, signature: string, address: string): boolean {
   try {
     const trimmed = signature.trim();
     const normalizedSig = /^0x/i.test(trimmed) ? trimmed : `0x${trimmed}`;
@@ -21,11 +17,7 @@ export function verifySr25519Signature(
   }
 }
 
-export async function verifyEvmSignature(
-  message: string,
-  signature: string,
-  address: string,
-): Promise<boolean> {
+export async function verifyEvmSignature(message: string, signature: string, address: string): Promise<boolean> {
   try {
     const trimmed = signature.trim();
     const normalizedSig = /^0x/i.test(trimmed) ? trimmed : `0x${trimmed}`;

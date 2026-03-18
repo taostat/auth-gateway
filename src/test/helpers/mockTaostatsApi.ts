@@ -6,9 +6,7 @@ interface MockTaostatsApi {
   calledEndpoints: string[];
 }
 
-export async function createMockTaostatsApi(
-  responses: Record<string, object> = {},
-): Promise<MockTaostatsApi> {
+export async function createMockTaostatsApi(responses: Record<string, object> = {}): Promise<MockTaostatsApi> {
   const calledEndpoints: string[] = [];
 
   const server = http.createServer((req, res) => {

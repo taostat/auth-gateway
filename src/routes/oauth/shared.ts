@@ -26,11 +26,12 @@ export function generateNonce(): string {
 }
 
 export function applyHtmlSecurityHeaders(reply: FastifyReply, nonce?: string): FastifyReply {
-  const scriptSrc = nonce
-    ? `'self' 'nonce-${nonce}'`
-    : "'self' 'unsafe-inline'";
+  const scriptSrc = nonce ? `'self' 'nonce-${nonce}'` : "'self' 'unsafe-inline'";
   reply
-    .header('Content-Security-Policy', `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`)
+    .header(
+      'Content-Security-Policy',
+      `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`,
+    )
     .header('X-Frame-Options', 'DENY')
     .header('X-Content-Type-Options', 'nosniff')
     .header('Referrer-Policy', 'no-referrer');

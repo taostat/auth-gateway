@@ -1,9 +1,4 @@
-import {
-  parseScope,
-  validateScopeFormat,
-  describeScope,
-  enforceClientScopes,
-} from '../../scopes/index';
+import { parseScope, validateScopeFormat, describeScope, enforceClientScopes } from '../../scopes/index';
 import { taoStringToRao } from '../../taostats/client';
 
 const RAO = 1_000_000_000n;
@@ -133,9 +128,7 @@ describe('validateScopeFormat', () => {
 describe('describeScope', () => {
   test('subnet scopes', () => {
     expect(describeScope('subnet:1:validator')).toBe('Validator on Subnet 1');
-    expect(describeScope('subnet:1:holder:100')).toBe(
-      'Token Holder on Subnet 1 (min 100 alpha)',
-    );
+    expect(describeScope('subnet:1:holder:100')).toBe('Token Holder on Subnet 1 (min 100 alpha)');
   });
 
   test('tao scopes', () => {
@@ -157,72 +150,47 @@ describe('describeScope', () => {
 
 describe('enforceClientScopes', () => {
   test('empty allowed_scopes permits everything', () => {
-    expect(() =>
-      enforceClientScopes(['subnet:1:miner', 'tao:holder'], []),
-    ).not.toThrow();
+    expect(() => enforceClientScopes(['subnet:1:miner', 'tao:holder'], [])).not.toThrow();
   });
 
   test('exact match passes', () => {
-    expect(() =>
-      enforceClientScopes(['subnet:1:holder:100'], ['subnet:1:holder:100']),
-    ).not.toThrow();
+    expect(() => enforceClientScopes(['subnet:1:holder:100'], ['subnet:1:holder:100'])).not.toThrow();
   });
 
   test('base scope allows parametric variant', () => {
-    expect(() =>
-      enforceClientScopes(['subnet:1:holder:100'], ['subnet:1:holder']),
-    ).not.toThrow();
+    expect(() => enforceClientScopes(['subnet:1:holder:100'], ['subnet:1:holder'])).not.toThrow();
   });
 
   test('base delegate allows parametric variant', () => {
-    expect(() =>
-      enforceClientScopes(
-        [`delegate:${HOTKEY}:500`],
-        [`delegate:${HOTKEY}`],
-      ),
-    ).not.toThrow();
+    expect(() => enforceClientScopes([`delegate:${HOTKEY}:500`], [`delegate:${HOTKEY}`])).not.toThrow();
   });
 
   test('base tao:holder allows parametric variant', () => {
-    expect(() =>
-      enforceClientScopes(['tao:holder:100'], ['tao:holder']),
-    ).not.toThrow();
+    expect(() => enforceClientScopes(['tao:holder:100'], ['tao:holder'])).not.toThrow();
   });
 
   test('staker scope must be explicitly allowed', () => {
-    expect(() =>
-      enforceClientScopes(['staker:1000'], ['subnet:1:miner']),
-    ).toThrow('not allowed');
+    expect(() => enforceClientScopes(['staker:1000'], ['subnet:1:miner'])).toThrow('not allowed');
   });
 
   test('explicit staker scope allows request', () => {
-    expect(() =>
-      enforceClientScopes(['staker:1000'], ['staker:1000']),
-    ).not.toThrow();
+    expect(() => enforceClientScopes(['staker:1000'], ['staker:1000'])).not.toThrow();
   });
 
   test('disallowed scope throws', () => {
-    expect(() =>
-      enforceClientScopes(['subnet:1:miner'], ['subnet:2:miner']),
-    ).toThrow('not allowed');
+    expect(() => enforceClientScopes(['subnet:1:miner'], ['subnet:2:miner'])).toThrow('not allowed');
   });
 
   test('metadata scopes always pass', () => {
-    expect(() =>
-      enforceClientScopes(['openid'], ['subnet:1:miner']),
-    ).not.toThrow();
+    expect(() => enforceClientScopes(['openid'], ['subnet:1:miner'])).not.toThrow();
   });
 
   test('staker scope must be explicitly allowed', () => {
-    expect(() =>
-      enforceClientScopes(['staker:1000'], ['subnet:1:miner']),
-    ).toThrow('not allowed');
+    expect(() => enforceClientScopes(['staker:1000'], ['subnet:1:miner'])).toThrow('not allowed');
   });
 
   test('staker scope passes when explicitly listed', () => {
-    expect(() =>
-      enforceClientScopes(['staker:1000'], ['staker:1000']),
-    ).not.toThrow();
+    expect(() => enforceClientScopes(['staker:1000'], ['staker:1000'])).not.toThrow();
   });
 });
 
@@ -244,8 +212,7 @@ describe('taoStringToRao', () => {
   });
 
   test('large value preserves precision', () => {
-    expect(taoStringToRao('999999999.999999999'))
-      .toBe(999_999_999_999_999_999n);
+    expect(taoStringToRao('999999999.999999999')).toBe(999_999_999_999_999_999n);
   });
 
   test('zero', () => {

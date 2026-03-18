@@ -7,7 +7,13 @@ import { JwtClaims } from '../types';
 export function createAccessToken(
   address: string,
   scopes: string[],
-  opts?: { client_id?: string | undefined; expiresIn?: number | undefined; hotkey?: string | null | undefined; coldkey?: string | null | undefined; evm_address?: string | null | undefined },
+  opts?: {
+    client_id?: string | undefined;
+    expiresIn?: number | undefined;
+    hotkey?: string | null | undefined;
+    coldkey?: string | null | undefined;
+    evm_address?: string | null | undefined;
+  },
 ): string {
   return jwt.sign(
     {
@@ -34,7 +40,15 @@ export function createAccessToken(
 export function createRefreshToken(
   address: string,
   scopes: string[],
-  opts?: { jti?: string | undefined; client_id?: string | undefined; epoch?: number | undefined; auth_time?: number | undefined; hotkey?: string | null | undefined; coldkey?: string | null | undefined; evm_address?: string | null | undefined },
+  opts?: {
+    jti?: string | undefined;
+    client_id?: string | undefined;
+    epoch?: number | undefined;
+    auth_time?: number | undefined;
+    hotkey?: string | null | undefined;
+    coldkey?: string | null | undefined;
+    evm_address?: string | null | undefined;
+  },
 ): string {
   return jwt.sign(
     {
@@ -106,8 +120,7 @@ export function createAuthCode(
  */
 export function computeAtHash(accessToken: string): string {
   const hash = createHash('sha256').update(accessToken).digest();
-  return hash.subarray(0, hash.length / 2)
-    .toString('base64url');
+  return hash.subarray(0, hash.length / 2).toString('base64url');
 }
 
 export function createIdToken(
@@ -154,10 +167,7 @@ export function createIdToken(
  */
 const CLOCK_TOLERANCE_SECONDS = 5;
 
-export function verifyIdToken(
-  token: string,
-  clientId: string,
-): JwtClaims {
+export function verifyIdToken(token: string, clientId: string): JwtClaims {
   const decoded = jwt.verify(token, getPublicKey(), {
     algorithms: ['RS256'],
     issuer: config.jwtIssuer,

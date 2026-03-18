@@ -9,11 +9,7 @@ import { authenticateClient } from '../../middleware/clientAuth';
 import { getClientSignMethod } from '../../crypto/address';
 import { checkClientRateLimit } from '../../middleware/clientRateLimit';
 import { storeRefreshToken, rotateRefreshToken, getRefreshToken, RotateError } from '../../db/refreshTokens';
-import {
-  getDeviceCode as dbGetDeviceCode,
-  deleteDeviceCode,
-  updateLastPolledAt,
-} from '../../db/deviceCodes';
+import { getDeviceCode as dbGetDeviceCode, deleteDeviceCode, updateLastPolledAt } from '../../db/deviceCodes';
 import {
   AuthError,
   OAuthErrorCode,
@@ -171,7 +167,12 @@ async function handleAuthorizationCode(
 
   return reply.code(200).send(
     buildTokenResponse(address, accessToken, refreshToken, scopes, accessExpiry, {
-      client_id: client.client_id, hotkey, coldkey, auth_time: authTime, nonce: claims.nonce, evm_address: evmAddress,
+      client_id: client.client_id,
+      hotkey,
+      coldkey,
+      auth_time: authTime,
+      nonce: claims.nonce,
+      evm_address: evmAddress,
     }),
   );
 }
@@ -257,9 +258,12 @@ async function handleRefreshToken(
     });
   } catch (e: unknown) {
     const message = getErrorMessage(e);
-    if (message === RotateError.NOT_FOUND) throw new AuthError('Refresh token not found', 401, OAuthErrorCode.INVALID_GRANT);
-    if (message === RotateError.REVOKED) throw new AuthError('Refresh token has been revoked', 401, OAuthErrorCode.INVALID_GRANT);
-    if (message === RotateError.EXPIRED) throw new AuthError('Refresh token expired', 401, OAuthErrorCode.INVALID_GRANT);
+    if (message === RotateError.NOT_FOUND)
+      throw new AuthError('Refresh token not found', 401, OAuthErrorCode.INVALID_GRANT);
+    if (message === RotateError.REVOKED)
+      throw new AuthError('Refresh token has been revoked', 401, OAuthErrorCode.INVALID_GRANT);
+    if (message === RotateError.EXPIRED)
+      throw new AuthError('Refresh token expired', 401, OAuthErrorCode.INVALID_GRANT);
     throw e;
   }
 
@@ -284,7 +288,11 @@ async function handleRefreshToken(
 
   return reply.code(200).send(
     buildTokenResponse(address, accessToken, newRefreshToken, scopes, accessExpiry, {
-      client_id: client.client_id, hotkey: signerCtx.hotkey, coldkey: signerCtx.coldkey, auth_time: authTime, evm_address: signerCtx.evmAddress,
+      client_id: client.client_id,
+      hotkey: signerCtx.hotkey,
+      coldkey: signerCtx.coldkey,
+      auth_time: authTime,
+      evm_address: signerCtx.evmAddress,
     }),
   );
 }
@@ -343,10 +351,7 @@ async function handleDeviceCode(
     signerCtx = resolveEvmSignerContext(entry.address);
     accessExpiry = config.jwtAccessTokenExpiry;
   } else {
-    const [epochInfo, ctx] = await Promise.all([
-      getEpochInfo(entry.scopes),
-      resolveSignerContext(entry.address),
-    ]);
+    const [epochInfo, ctx] = await Promise.all([getEpochInfo(entry.scopes), resolveSignerContext(entry.address)]);
     signerCtx = ctx;
     accessExpiry = epochInfo.accessExpiry;
     epoch = epochInfo.epoch;
@@ -357,9 +362,7 @@ async function handleDeviceCode(
   }
 
   const refreshJti = randomUUID();
-  const authTime = entry.approvedAt
-    ? Math.floor(entry.approvedAt.getTime() / 1000)
-    : Math.floor(Date.now() / 1000);
+  const authTime = entry.approvedAt ? Math.floor(entry.approvedAt.getTime() / 1000) : Math.floor(Date.now() / 1000);
   const accessToken = createAccessToken(entry.address, entry.scopes, {
     client_id: client.client_id,
     expiresIn: accessExpiry,
@@ -388,66 +391,90 @@ async function handleDeviceCode(
 
   return reply.code(200).send(
     buildTokenResponse(entry.address, accessToken, refreshToken, entry.scopes, accessExpiry, {
-      client_id: client.client_id, hotkey: signerCtx.hotkey, coldkey: signerCtx.coldkey, auth_time: authTime, evm_address: signerCtx.evmAddress,
+      client_id: client.client_id,
+      hotkey: signerCtx.hotkey,
+      coldkey: signerCtx.coldkey,
+      auth_time: authTime,
+      evm_address: signerCtx.evmAddress,
     }),
   );
 }
 
 export async function tokenRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /v1/oauth/token — unified token endpoint (RFC 6749)
-  fastify.post('/v1/oauth/token', {
-    schema: {
-      tags: ['OAuth'],
-      summary: 'Exchange credentials for tokens',
-      body: TokenBodySchema,
-      response: { 200: TokenResponseSchema },
+  fastify.post(
+    '/v1/oauth/token',
+    {
+      schema: {
+        tags: ['OAuth'],
+        summary: 'Exchange credentials for tokens',
+        body: TokenBodySchema,
+        response: { 200: TokenResponseSchema },
+      },
     },
-  }, async (request: FastifyRequest<{
-    Body: TokenBody;
-  }>, reply: FastifyReply) => {
-    const { grant_type } = request.body;
-    const { client, pkceRequired } = await authenticateClient(request);
-    checkClientRateLimit(client.client_id, client.rate_limit);
+    async (
+      request: FastifyRequest<{
+        Body: TokenBody;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const { grant_type } = request.body;
+      const { client, pkceRequired } = await authenticateClient(request);
+      checkClientRateLimit(client.client_id, client.rate_limit);
 
-    const allowedGrant = grant_type === 'urn:ietf:params:oauth:grant-type:device_code'
-      ? client.grant_types.includes('urn:ietf:params:oauth:grant-type:device_code') || client.grant_types.includes('device_code')
-      : client.grant_types.includes(grant_type);
-    if (!allowedGrant) {
-      throw new AuthError('This client is not authorized for the requested grant_type', 400, OAuthErrorCode.UNSUPPORTED_GRANT_TYPE);
-    }
+      const allowedGrant =
+        grant_type === 'urn:ietf:params:oauth:grant-type:device_code'
+          ? client.grant_types.includes('urn:ietf:params:oauth:grant-type:device_code') ||
+            client.grant_types.includes('device_code')
+          : client.grant_types.includes(grant_type);
+      if (!allowedGrant) {
+        throw new AuthError(
+          'This client is not authorized for the requested grant_type',
+          400,
+          OAuthErrorCode.UNSUPPORTED_GRANT_TYPE,
+        );
+      }
 
-    switch (grant_type) {
-      case 'authorization_code':
-        return handleAuthorizationCode(request, reply, client, pkceRequired);
-      case 'refresh_token':
-        return handleRefreshToken(request, reply, client);
-      case 'urn:ietf:params:oauth:grant-type:device_code':
-        return handleDeviceCode(request, reply, client);
-      default:
-        throw new AuthError('Unsupported grant_type', 400, OAuthErrorCode.UNSUPPORTED_GRANT_TYPE);
-    }
-  });
+      switch (grant_type) {
+        case 'authorization_code':
+          return handleAuthorizationCode(request, reply, client, pkceRequired);
+        case 'refresh_token':
+          return handleRefreshToken(request, reply, client);
+        case 'urn:ietf:params:oauth:grant-type:device_code':
+          return handleDeviceCode(request, reply, client);
+        default:
+          throw new AuthError('Unsupported grant_type', 400, OAuthErrorCode.UNSUPPORTED_GRANT_TYPE);
+      }
+    },
+  );
 
   // POST /v1/oauth/refresh — backward-compat alias for refresh_token grant
-  fastify.post('/v1/oauth/refresh', {
-    schema: {
-      tags: ['OAuth'],
-      summary: 'Refresh token rotation',
-      body: TokenBodySchema,
-      response: { 200: TokenResponseSchema },
+  fastify.post(
+    '/v1/oauth/refresh',
+    {
+      schema: {
+        tags: ['OAuth'],
+        summary: 'Refresh token rotation',
+        body: TokenBodySchema,
+        response: { 200: TokenResponseSchema },
+      },
     },
-  }, async (request: FastifyRequest<{
-    Body: TokenBody;
-  }>, reply: FastifyReply) => {
-    const { grant_type } = request.body;
+    async (
+      request: FastifyRequest<{
+        Body: TokenBody;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const { grant_type } = request.body;
 
-    if (grant_type !== 'refresh_token') {
-      throw new AuthError('Unsupported grant_type. Use "refresh_token".', 400, OAuthErrorCode.UNSUPPORTED_GRANT_TYPE);
-    }
+      if (grant_type !== 'refresh_token') {
+        throw new AuthError('Unsupported grant_type. Use "refresh_token".', 400, OAuthErrorCode.UNSUPPORTED_GRANT_TYPE);
+      }
 
-    const { client } = await authenticateClient(request);
-    checkClientRateLimit(client.client_id, client.rate_limit);
+      const { client } = await authenticateClient(request);
+      checkClientRateLimit(client.client_id, client.rate_limit);
 
-    return handleRefreshToken(request, reply, client);
-  });
+      return handleRefreshToken(request, reply, client);
+    },
+  );
 }

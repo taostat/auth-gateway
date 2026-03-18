@@ -31,7 +31,9 @@ describe('Validator Scope Handler', () => {
   });
 
   test('unregistered address returns false', async () => {
-    const result = await validatorHandler.verify(hotkey('5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy'), { netuid: 1 });
+    const result = await validatorHandler.verify(hotkey('5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy'), {
+      netuid: 1,
+    });
     expect(result).toBe(false);
   });
 

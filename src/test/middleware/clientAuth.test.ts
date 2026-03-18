@@ -1,4 +1,12 @@
-import { setupMockDb, createTestClient, createPublicTestClient, addTestClient, clearTestClients, TEST_CLIENT_ID, TEST_CLIENT_SECRET } from '../helpers/mockDb';
+import {
+  setupMockDb,
+  createTestClient,
+  createPublicTestClient,
+  addTestClient,
+  clearTestClients,
+  TEST_CLIENT_ID,
+  TEST_CLIENT_SECRET,
+} from '../helpers/mockDb';
 
 // Setup mocks BEFORE importing modules
 setupMockDb();
@@ -6,10 +14,7 @@ setupMockDb();
 import { authenticateClient } from '../../middleware/clientAuth';
 import { InvalidClientError } from '../../util/errors';
 
-function makeRequest(opts: {
-  body?: Record<string, any>;
-  authorization?: string;
-}) {
+function makeRequest(opts: { body?: Record<string, any>; authorization?: string }) {
   return {
     headers: {
       authorization: opts.authorization,

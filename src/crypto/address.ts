@@ -29,10 +29,7 @@ export function normalizeEvmAddress(address: string): string {
   return getAddress(address);
 }
 
-export function isValidAddress(
-  address: string,
-  method: SignMethod,
-): boolean {
+export function isValidAddress(address: string, method: SignMethod): boolean {
   if (method === 'evm') return isValidEvmAddress(address);
   return isValidSS58(address);
 }
@@ -41,27 +38,19 @@ export function isValidAddress(
  * Detect, validate, and normalize an address in one step.
  * Throws InvalidAddressError if the address is malformed.
  */
-export function validateAndNormalizeAddress(
-  rawAddress: string,
-): { address: string; method: SignMethod } {
+export function validateAndNormalizeAddress(rawAddress: string): { address: string; method: SignMethod } {
   const method = detectSignMethod(rawAddress);
   if (!isValidAddress(rawAddress, method)) {
-    const msg = method === 'evm'
-      ? 'Invalid EVM address'
-      : 'Invalid SS58 address';
+    const msg = method === 'evm' ? 'Invalid EVM address' : 'Invalid SS58 address';
     throw new InvalidAddressError(msg);
   }
-  const address = method === 'evm'
-    ? normalizeEvmAddress(rawAddress)
-    : rawAddress;
+  const address = method === 'evm' ? normalizeEvmAddress(rawAddress) : rawAddress;
   return { address, method };
 }
 
 /**
  * Extract the sign method from a client's allowed_sign_methods array.
  */
-export function getClientSignMethod(
-  methods: string[] | undefined | null,
-): SignMethod {
+export function getClientSignMethod(methods: string[] | undefined | null): SignMethod {
   return (methods?.[0] as SignMethod) || DEFAULT_SIGN_METHOD;
 }

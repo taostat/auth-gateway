@@ -30,15 +30,11 @@ export async function runMigrations(): Promise<void> {
         locked_at TIMESTAMPTZ DEFAULT now()
       )
     `);
-    await lockClient.query(
-      'INSERT INTO _migration_lock (id) VALUES (1) ON CONFLICT DO NOTHING',
-    );
+    await lockClient.query('INSERT INTO _migration_lock (id) VALUES (1) ON CONFLICT DO NOTHING');
 
     // Acquire row-level lock (held for duration of transaction)
     await lockClient.query('BEGIN');
-    await lockClient.query(
-      'SELECT * FROM _migration_lock WHERE id = 1 FOR UPDATE',
-    );
+    await lockClient.query('SELECT * FROM _migration_lock WHERE id = 1 FOR UPDATE');
 
     // Create migrations tracking table
     await lockClient.query(`
@@ -55,9 +51,10 @@ export async function runMigrations(): Promise<void> {
       return;
     }
 
-    const files = fs.readdirSync(migrationsDir)
+    const files = fs
+      .readdirSync(migrationsDir)
       .filter((f) => f.endsWith('.sql'))
-      .sort();
+      .toSorted();
 
     if (files.length === 0) {
       console.log('No migration files found');
@@ -85,7 +82,7 @@ export async function runMigrations(): Promise<void> {
         console.log(`Migration applied: ${file}`);
       } catch (err) {
         await client.query('ROLLBACK');
-        throw new Error(`Migration ${file} failed: ${(err as Error).message}`);
+        throw new Error(`Migration ${file} failed: ${(err as Error).message}`, { cause: err });
       } finally {
         client.release();
       }
