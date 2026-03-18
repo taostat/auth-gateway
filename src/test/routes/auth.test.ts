@@ -46,7 +46,7 @@ describe('Auth Routes', () => {
       });
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.payload);
-      expect(body.nonce).toMatch(/^bittensor-auth:/);
+      expect(body.nonce).toMatch(/^taostats-auth:/);
       expect(body.expires_in).toBeGreaterThan(0);
     });
 

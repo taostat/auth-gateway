@@ -197,7 +197,7 @@ export function setupMockDb(): void {
     return {
       createChallenge: jest.fn().mockImplementation(async (address: string | null, scopes: string[] = []) => {
         const scopesCsv = scopes.length > 0 ? scopes.join(',') : 'none';
-        const nonce = `bittensor-auth:${scopesCsv}:${randomUUID()}`;
+        const nonce = `taostats-auth:${scopesCsv}:${randomUUID()}`;
         const now = new Date();
         challenges.set(nonce, { nonce, address, scopes, createdAt: now, consumed: false });
         return { nonce, address, scopes, createdAt: now };

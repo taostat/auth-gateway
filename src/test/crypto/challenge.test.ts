@@ -14,14 +14,14 @@ describe('Challenge', () => {
 
   test('createChallenge generates nonce in correct format', async () => {
     const challenge = await createChallenge(address, []);
-    expect(challenge.nonce).toMatch(/^bittensor-auth:none:[0-9a-f-]+$/);
+    expect(challenge.nonce).toMatch(/^taostats-auth:none:[0-9a-f-]+$/);
     expect(challenge.address).toBe(address);
     expect(challenge.scopes).toEqual([]);
   });
 
   test('createChallenge includes scopes in nonce', async () => {
     const challenge = await createChallenge(address, ['subnet:1:miner', 'subnet:2:validator']);
-    expect(challenge.nonce).toMatch(/^bittensor-auth:subnet:1:miner,subnet:2:validator:[0-9a-f-]+$/);
+    expect(challenge.nonce).toMatch(/^taostats-auth:subnet:1:miner,subnet:2:validator:[0-9a-f-]+$/);
   });
 
   test('consumeChallenge returns the challenge and is single-use', async () => {

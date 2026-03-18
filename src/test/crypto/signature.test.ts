@@ -8,7 +8,7 @@ beforeAll(async () => {
 
 describe('Signature Verification', () => {
   test('valid sr25519 signature is accepted', async () => {
-    const message = 'bittensor-auth:none:test-nonce';
+    const message = 'taostats-auth:none:test-nonce';
     const address = await getAliceAddress();
     const signature = await signWithAlice(message);
 
@@ -16,7 +16,7 @@ describe('Signature Verification', () => {
   });
 
   test('invalid signature is rejected', async () => {
-    const message = 'bittensor-auth:none:test-nonce';
+    const message = 'taostats-auth:none:test-nonce';
     const address = await getAliceAddress();
     const badSig = '0x' + '00'.repeat(64);
 
@@ -31,7 +31,7 @@ describe('Signature Verification', () => {
   });
 
   test('valid signature with wrong address is rejected', async () => {
-    const message = 'bittensor-auth:none:test-nonce';
+    const message = 'taostats-auth:none:test-nonce';
     const signature = await signWithAlice(message);
     const wrongAddress = '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty'; // Bob
 
@@ -54,7 +54,7 @@ describe('Signature Verification', () => {
   });
 
   test('verifySignatureOrThrow does not throw on valid sig', async () => {
-    const message = 'bittensor-auth:none:test-nonce';
+    const message = 'taostats-auth:none:test-nonce';
     const address = await getAliceAddress();
     const signature = await signWithAlice(message);
 
