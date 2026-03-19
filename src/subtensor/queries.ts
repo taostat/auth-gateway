@@ -187,12 +187,27 @@ export async function getOwnerColdkey(hotkey: string): Promise<string | null> {
 
 /**
  * Get dividends for a given netuid.
- * Returns a u16 array indexed by uid. Non-zero dividends indicate a validator.
+ * Returns a u16 array indexed by uid.
  */
 export async function getDividends(netuid: number): Promise<number[]> {
   const api = await getSubtensorApi();
   const result: any = await withTimeout((api.query as any).subtensorModule.dividends(netuid), `dividends(${netuid})`);
   return result.toJSON() as number[];
+}
+
+/**
+ * Get validator permits for a given netuid.
+ * Returns a boolean array indexed by uid. True means the neuron has
+ * enough stake to validate (granted by the chain, independent of
+ * whether the validator has set weights or earned dividends).
+ */
+export async function getValidatorPermits(netuid: number): Promise<boolean[]> {
+  const api = await getSubtensorApi();
+  const result: any = await withTimeout(
+    (api.query as any).subtensorModule.validatorPermit(netuid),
+    `validatorPermit(${netuid})`,
+  );
+  return result.toJSON() as boolean[];
 }
 
 /**

@@ -1,6 +1,7 @@
 export interface MockChainState {
   keys: Map<number, Map<number, string>>;
   dividends: Map<number, number[]>;
+  validatorPermits: Map<number, boolean[]>;
   subnetOwners: Map<number, string>;
   hotkeyOwners: Map<string, string>;
   accounts: Map<string, { free: bigint }>;
@@ -12,6 +13,7 @@ export function createMockChainState(): MockChainState {
   return {
     keys: new Map(),
     dividends: new Map(),
+    validatorPermits: new Map(),
     subnetOwners: new Map(),
     hotkeyOwners: new Map(),
     accounts: new Map(),
@@ -39,11 +41,20 @@ export class MockChainBuilder {
     return divs;
   }
 
+  private ensurePermitsSlot(netuid: number, uid: number): boolean[] {
+    if (!this.state.validatorPermits.has(netuid)) this.state.validatorPermits.set(netuid, []);
+    const permits = this.state.validatorPermits.get(netuid)!;
+    while (permits.length <= uid) permits.push(false);
+    return permits;
+  }
+
   setMiner(address: string, netuid: number, uid: number, coldkey?: string): this {
     if (!this.state.keys.has(netuid)) this.state.keys.set(netuid, new Map());
     this.state.keys.get(netuid)!.set(uid, address);
     const divs = this.ensureDividendsSlot(netuid, uid);
     divs[uid] = 0;
+    const permits = this.ensurePermitsSlot(netuid, uid);
+    permits[uid] = false;
     this.state.hotkeyOwners.set(address, coldkey ?? address);
     return this;
   }
@@ -53,6 +64,8 @@ export class MockChainBuilder {
     this.state.keys.get(netuid)!.set(uid, address);
     const divs = this.ensureDividendsSlot(netuid, uid);
     divs[uid] = 65535;
+    const permits = this.ensurePermitsSlot(netuid, uid);
+    permits[uid] = true;
     this.state.hotkeyOwners.set(address, coldkey ?? address);
     return this;
   }
@@ -116,6 +129,10 @@ export function createMockApi(state: MockChainState) {
         dividends: jest.fn().mockImplementation((netuid: number) => {
           const divs = state.dividends.get(netuid) || [];
           return Promise.resolve({ toJSON: () => divs });
+        }),
+        validatorPermit: jest.fn().mockImplementation((netuid: number) => {
+          const permits = state.validatorPermits.get(netuid) || [];
+          return Promise.resolve({ toJSON: () => permits });
         }),
         subnetOwner: jest.fn().mockImplementation((netuid: number) => {
           const owner = state.subnetOwners.get(netuid) || '';
