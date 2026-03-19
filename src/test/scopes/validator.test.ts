@@ -3,11 +3,16 @@ import { SignerContext } from '../../scopes/signerContext';
 
 const ALICE = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
 const BOB = '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty';
+const CHARLIE = '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y';
 
 const builder = new MockChainBuilder();
 builder.setValidator(ALICE, 1, 3);
 builder.setMiner(BOB, 1, 5);
-const mockApi = createMockApi(builder.getState());
+// New validator: has permit but zero dividends (hasn't set weights yet)
+builder.setValidator(CHARLIE, 1, 7);
+const state = builder.getState();
+state.dividends.get(1)![7] = 0;
+const mockApi = createMockApi(state);
 
 jest.mock('../../subtensor/client', () => ({
   getSubtensorApi: jest.fn().mockResolvedValue(mockApi),
@@ -35,6 +40,11 @@ describe('Validator Scope Handler', () => {
       netuid: 1,
     });
     expect(result).toBe(false);
+  });
+
+  test('new validator with permit but zero dividends returns true', async () => {
+    const result = await validatorHandler.verify(hotkey(CHARLIE), { netuid: 1 });
+    expect(result).toBe(true);
   });
 
   test('coldkey signer (no hotkey) returns false', async () => {
