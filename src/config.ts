@@ -79,6 +79,7 @@ export const config = {
 
   // Admin API
   adminApiKey: process.env['ADMIN_API_KEY'] || undefined,
+  adminPort: intEnv('ADMIN_PORT', 0) || undefined,
 
   // Migrations
   runMigrations: optionalEnv('RUN_MIGRATIONS', 'true') === 'true',
