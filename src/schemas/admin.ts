@@ -16,6 +16,17 @@ export const CreateClientBodySchema = z.object({
   rate_limit: z.number().optional(),
 });
 
+export const UpdateClientBodySchema = z.object({
+  client_name: z.string(),
+  redirect_uris: z.array(z.string()),
+  grant_types: z.array(
+    z.enum(['authorization_code', 'refresh_token', 'urn:ietf:params:oauth:grant-type:device_code']),
+  ),
+  allowed_scopes: z.array(z.string()),
+  allowed_origins: z.array(z.string()),
+  rate_limit: z.number(),
+}).partial();
+
 export const ClientIdParamsSchema = z.object({
   client_id: z.string(),
 });
