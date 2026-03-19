@@ -2,10 +2,10 @@ import crypto from 'crypto';
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { config } from '../config';
-import { createClient, listClients, deactivateClient } from '../db/clients';
+import { createClient, listClients, deactivateClient, updateClient, rotateClientSecret, getClientById, UpdateClientFields } from '../db/clients';
 import { AdminAuthError, AuthError } from '../util/errors';
 import { validateScopeFormat } from '../scopes';
-import { CreateClientBodySchema, ClientIdParamsSchema } from '../schemas/admin';
+import { CreateClientBodySchema, UpdateClientBodySchema, ClientIdParamsSchema } from '../schemas/admin';
 import { ErrorResponseSchema } from '../schemas/responses';
 
 function requireAdmin(request: FastifyRequest): void {
@@ -167,6 +167,147 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
           created_at: c.created_at,
         })),
       );
+    },
+  );
+
+  // PATCH /v1/admin/clients/:client_id — update a client
+  fastify.patch(
+    '/v1/admin/clients/:client_id',
+    {
+      schema: {
+        tags: ['Admin'],
+        summary: 'Update a client',
+        security: [{ adminApiKey: [] }],
+        params: ClientIdParamsSchema,
+        body: UpdateClientBodySchema,
+        response: { 400: ErrorResponseSchema },
+      },
+    },
+    async (
+      request: FastifyRequest<{
+        Params: z.infer<typeof ClientIdParamsSchema>;
+        Body: z.infer<typeof UpdateClientBodySchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      requireAdmin(request);
+
+      const { client_id } = request.params;
+      const body = request.body;
+
+      // Validate redirect URIs if provided
+      if (body.redirect_uris) {
+        for (const uri of body.redirect_uris) {
+          validateRedirectUri(uri);
+        }
+      }
+
+      // Fetch existing client for cross-field validation when needed
+      const needsExisting =
+        body.grant_types || body.redirect_uris || body.allowed_scopes;
+      const existing = needsExisting
+        ? await getClientById(client_id)
+        : null;
+
+      // Validate grant_types vs redirect_uris (both directions)
+      const effectiveGrants = body.grant_types ?? existing?.grant_types ?? [];
+      const effectiveUris = body.redirect_uris ?? existing?.redirect_uris ?? [];
+      const needsCallback = effectiveGrants.some((g) => g === 'authorization_code');
+      if (needsCallback && effectiveUris.length === 0) {
+        throw new AuthError(
+          'redirect_uris required when authorization_code grant is enabled',
+          400,
+          'Bad Request',
+        );
+      }
+
+      // Validate scopes if provided
+      if (body.allowed_scopes) {
+        for (const scope of body.allowed_scopes) {
+          if (!validateScopeFormat(scope)) {
+            throw new AuthError(`Invalid scope format: ${scope}`, 400, 'Bad Request');
+          }
+        }
+
+        // Enforce EVM scope restriction
+        if (existing?.allowed_sign_methods.includes('evm')) {
+          if (body.allowed_scopes.length === 0) {
+            throw new AuthError('EVM clients must specify allowed_scopes: ["openid"]', 400, 'Bad Request');
+          }
+          const nonOpenid = body.allowed_scopes.filter((s) => s !== 'openid');
+          if (nonOpenid.length > 0) {
+            throw new AuthError('EVM clients can only use the "openid" scope', 400, 'Bad Request');
+          }
+        }
+      }
+
+      const fields: UpdateClientFields = {
+        client_name: body.client_name,
+        redirect_uris: body.redirect_uris,
+        grant_types: body.grant_types,
+        allowed_scopes: body.allowed_scopes,
+        allowed_origins: body.allowed_origins,
+        rate_limit: body.rate_limit,
+      };
+
+      const updated = await updateClient(client_id, fields);
+      if (!updated) {
+        throw new AuthError('Client not found', 404, 'Not Found');
+      }
+
+      return reply.code(200).send({
+        client_id: updated.client_id,
+        client_name: updated.client_name,
+        client_type: updated.client_type,
+        redirect_uris: updated.redirect_uris,
+        grant_types: updated.grant_types,
+        allowed_scopes: updated.allowed_scopes,
+        allowed_origins: updated.allowed_origins,
+        allowed_sign_methods: updated.allowed_sign_methods,
+        rate_limit: updated.rate_limit,
+        active: updated.active,
+        created_at: updated.created_at,
+      });
+    },
+  );
+
+  // POST /v1/admin/clients/:client_id/rotate-secret — rotate client secret
+  fastify.post(
+    '/v1/admin/clients/:client_id/rotate-secret',
+    {
+      schema: {
+        tags: ['Admin'],
+        summary: 'Rotate client secret (confidential clients only)',
+        security: [{ adminApiKey: [] }],
+        params: ClientIdParamsSchema,
+        response: { 400: ErrorResponseSchema },
+      },
+    },
+    async (
+      request: FastifyRequest<{
+        Params: z.infer<typeof ClientIdParamsSchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      requireAdmin(request);
+
+      const { client_id } = request.params;
+      const result = await rotateClientSecret(client_id);
+
+      if (!result) {
+        throw new AuthError(
+          'Client not found or is not a confidential client',
+          404,
+          'Not Found',
+        );
+      }
+
+      return reply.code(200).send({
+        client_id: result.client.client_id,
+        client_secret: result.client_secret,
+        client_name: result.client.client_name,
+        message: 'Secret rotated. The old secret is now invalid.',
+      });
     },
   );
 

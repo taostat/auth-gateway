@@ -112,6 +112,26 @@ export function setupMockDb(): void {
     }),
     createClient: jest.fn(),
     listClients: jest.fn().mockImplementation(async () => Array.from(clients.values())),
+    updateClient: jest.fn().mockImplementation(async (clientId: string, fields: Record<string, unknown>) => {
+      const client = clients.get(clientId);
+      if (!client || !client.active) return null;
+      const updated = { ...client, ...fields, updated_at: new Date() };
+      // Remove undefined values
+      for (const key of Object.keys(updated)) {
+        if ((updated as Record<string, unknown>)[key] === undefined) {
+          (updated as Record<string, unknown>)[key] = (client as Record<string, unknown>)[key];
+        }
+      }
+      clients.set(clientId, updated as OAuthClient);
+      return updated;
+    }),
+    rotateClientSecret: jest.fn().mockImplementation(async (clientId: string) => {
+      const client = clients.get(clientId);
+      if (!client || !client.active || client.client_type !== 'confidential') return null;
+      const updated = { ...client, client_secret_hash: 'scrypt$new-hash', updated_at: new Date() };
+      clients.set(clientId, updated);
+      return { client: updated, client_secret: 'new-rotated-secret-hex' };
+    }),
     deactivateClient: jest.fn().mockImplementation(async (clientId: string) => {
       const existed = clients.has(clientId);
       clients.delete(clientId);

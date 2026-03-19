@@ -164,6 +164,94 @@ export async function listClients(): Promise<OAuthClient[]> {
   return rows.map(fromRow);
 }
 
+export interface UpdateClientFields {
+  client_name?: string | undefined;
+  redirect_uris?: string[] | undefined;
+  grant_types?: string[] | undefined;
+  allowed_scopes?: string[] | undefined;
+  allowed_origins?: string[] | undefined;
+  rate_limit?: number | undefined;
+}
+
+const UPDATABLE_COLUMNS: (keyof UpdateClientFields)[] = [
+  'client_name',
+  'redirect_uris',
+  'grant_types',
+  'allowed_scopes',
+  'allowed_origins',
+  'rate_limit',
+];
+
+export async function updateClient(
+  clientId: string,
+  fields: UpdateClientFields,
+): Promise<OAuthClient | null> {
+  const pool = getPool();
+
+  const setClauses: string[] = [];
+  const values: unknown[] = [];
+  let paramIndex = 1;
+
+  for (const col of UPDATABLE_COLUMNS) {
+    const value = fields[col];
+    if (value !== undefined) {
+      setClauses.push(`${col} = $${paramIndex}`);
+      values.push(value);
+      paramIndex++;
+    }
+  }
+
+  if (setClauses.length === 0) return null;
+
+  setClauses.push(`updated_at = now()`);
+  values.push(clientId);
+
+  const { rows } = await pool.query<OAuthClientRow>(
+    `UPDATE oauth_clients SET ${setClauses.join(', ')}
+     WHERE client_id = $${paramIndex} AND active = TRUE
+     RETURNING *`,
+    values,
+  );
+
+  const row = rows[0];
+  if (!row) return null;
+
+  const client = fromRow(row);
+  clientCache.delete(clientId);
+  originsCache = null;
+  return client;
+}
+
+export async function rotateClientSecret(
+  clientId: string,
+): Promise<{ client: OAuthClient; client_secret: string } | null> {
+  const pool = getPool();
+
+  const { rowCount } = await pool.query(
+    `SELECT 1 FROM oauth_clients WHERE client_id = $1 AND active = TRUE AND client_type = 'confidential'`,
+    [clientId],
+  );
+  if (!rowCount) return null;
+
+  const plainSecret = randomBytes(32).toString('hex');
+  const secretHash = await hashClientSecret(plainSecret);
+
+  const { rows } = await pool.query<OAuthClientRow>(
+    `UPDATE oauth_clients
+     SET client_secret_hash = $1, updated_at = now()
+     WHERE client_id = $2 AND active = TRUE AND client_type = 'confidential'
+     RETURNING *`,
+    [secretHash, clientId],
+  );
+
+  const row = rows[0];
+  if (!row) return null;
+
+  const client = fromRow(row);
+  clientCache.delete(clientId);
+  return { client, client_secret: plainSecret };
+}
+
 export async function deactivateClient(clientId: string): Promise<boolean> {
   const pool = getPool();
   const { rowCount } = await pool.query(
