@@ -1,5 +1,5 @@
 import { cryptoWaitReady } from '@polkadot/util-crypto';
-import Fastify from 'fastify';
+import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import formbody from '@fastify/formbody';
@@ -12,7 +12,7 @@ import { loadKeys } from './crypto/keys';
 import { startChallengeCleanup, stopChallengeCleanup, waitForChallengeCleanup } from './crypto/challenge';
 import { startDeviceCodeCleanup, stopDeviceCodeCleanup, waitForDeviceCodeCleanup } from './routes/device';
 import { disconnectSubtensor, getSubtensorApi } from './subtensor/client';
-import { registerRoutes } from './routes';
+import { registerRoutes, registerAdminRoutes } from './routes';
 import { createErrorHandler } from './errorHandler';
 import { startAuthCodeCleanup, stopAuthCodeCleanup, waitForAuthCodeCleanup } from './crypto/authCodeTracker';
 import { getPool, disconnectDb } from './db/pool';
@@ -21,6 +21,23 @@ import { getAllowedOrigins } from './db/clients';
 import { startRefreshTokenCleanup, stopRefreshTokenCleanup, waitForRefreshTokenCleanup } from './db/refreshTokens';
 import { ensureDemoClients } from './demo';
 import { setDemoClients } from './routes/landing';
+
+function createServer(): FastifyInstance {
+  const server = Fastify({
+    logger: { level: config.nodeEnv === 'production' ? 'info' : 'debug' },
+    bodyLimit: config.jsonBodyLimitBytes,
+    trustProxy: true,
+  });
+  server.setValidatorCompiler(validatorCompiler);
+  server.setSerializerCompiler(serializerCompiler);
+  server.setErrorHandler(
+    createErrorHandler({
+      hideInternalErrors: config.nodeEnv === 'production',
+      logErrors: true,
+    }),
+  );
+  return server;
+}
 
 async function main(): Promise<void> {
   // Wait for WASM crypto to initialize
@@ -57,17 +74,8 @@ async function main(): Promise<void> {
   }
 
   // Create Fastify instance
-  const server = Fastify({
-    logger: {
-      level: config.nodeEnv === 'production' ? 'info' : 'debug',
-    },
-    bodyLimit: config.jsonBodyLimitBytes,
-    trustProxy: true,
-  });
+  const server = createServer();
 
-  // Set Zod validation compilers
-  server.setValidatorCompiler(validatorCompiler);
-  server.setSerializerCompiler(serializerCompiler);
 
   // Register Swagger (OpenAPI 3.0)
   await server.register(swagger, {
@@ -149,15 +157,16 @@ async function main(): Promise<void> {
 
   await server.register(formbody);
 
-  server.setErrorHandler(
-    createErrorHandler({
-      hideInternalErrors: config.nodeEnv === 'production',
-      logErrors: true,
-    }),
-  );
-
   // Register routes
-  await registerRoutes(server);
+  const adminPort = config.adminPort !== config.port ? config.adminPort : undefined;
+  await registerRoutes(server, { excludeAdmin: !!adminPort });
+
+  // Start admin server on separate port if configured
+  let adminServer: FastifyInstance | undefined;
+  if (adminPort) {
+    adminServer = createServer();
+    await registerAdminRoutes(adminServer);
+  }
 
   // Start cleanup intervals
   startChallengeCleanup();
@@ -165,9 +174,16 @@ async function main(): Promise<void> {
   startAuthCodeCleanup();
   startRefreshTokenCleanup();
 
-  // Start server
-  await server.listen({ port: config.port, host: config.host });
+  // Start servers
+  const listenOpts = { host: config.host };
+  await Promise.all([
+    server.listen({ ...listenOpts, port: config.port }),
+    adminServer?.listen({ ...listenOpts, port: adminPort! }),
+  ]);
   console.log(`Auth gateway listening on ${config.host}:${config.port}`);
+  if (adminPort) {
+    console.log(`Admin API listening on ${config.host}:${adminPort}`);
+  }
 
   // Graceful shutdown
   let shuttingDown = false;
@@ -193,6 +209,7 @@ async function main(): Promise<void> {
       waitForAuthCodeCleanup(),
       waitForRefreshTokenCleanup(),
     ]);
+    if (adminServer) await adminServer.close();
     await server.close();
     await disconnectSubtensor();
     await disconnectDb();
