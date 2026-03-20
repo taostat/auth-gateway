@@ -1,4 +1,5 @@
 import { config } from '../config';
+import type { SignMethod } from '../crypto/address';
 
 /**
  * Starry background — faithful vanilla JS port of the wallet
@@ -138,16 +139,32 @@ export const poweredByHtml = `<div class="powered-by">
   </a>
 </div>`;
 
-export function walletBannerHtml(): string {
-  if (!config.walletBannerUrl) return '';
-  return `
-  <div id="wallet-banner" class="wallet-banner" style="display:none">
+export function walletBannersHtml(method?: SignMethod): string {
+  const bittensorBanner =
+    !config.walletBannerUrl
+      ? ''
+      : `
+  <div id="bittensor-banner" class="wallet-banner" style="display:none">
     <span>For the best experience, install the <a href="${escapeHtml(config.walletBannerUrl)}" target="_blank" rel="noopener noreferrer">Taostats Wallet</a></span>
-    <button id="banner-close">&times;</button>
+    <button class="banner-close">&times;</button>
   </div>
-  <div id="mobile-notice" class="wallet-banner" style="display:none">
+  <div id="bittensor-mobile-notice" class="wallet-banner" style="display:none">
     <span>Wallet signing is not available on mobile. Please open this page on a desktop browser.</span>
   </div>`;
+
+  const evmBanner = `
+  <div id="evm-banner" class="wallet-banner" style="display:none">
+    <span>An Ethereum wallet is required. <a href="https://ethereum.org/en/wallets/find-wallet/" target="_blank" rel="noopener noreferrer">Find a wallet</a></span>
+    <button class="banner-close">&times;</button>
+  </div>
+  <div id="evm-mobile-notice" class="wallet-banner" style="display:none">
+    <span>Open this page in your Ethereum wallet's in-app browser to sign.
+    <button id="btn-copy-url" style="background:none;border:1px solid var(--text-muted);color:var(--text-secondary);border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.8rem;margin-left:6px;">Copy URL</button></span>
+  </div>`;
+
+  if (method === 'sr25519') return bittensorBanner;
+  if (method === 'evm') return evmBanner;
+  return bittensorBanner + evmBanner;
 }
 
 export function mobileDetectScript(): string {
@@ -156,92 +173,92 @@ export function mobileDetectScript(): string {
     }`;
 }
 
-export function checkWalletScript(): string {
-  if (!config.walletBannerUrl) return '';
-  return `function checkWallet() {
-      var banner = document.getElementById('wallet-banner');
-      var mobileNotice = document.getElementById('mobile-notice');
-      var btn = document.getElementById('btn-authorize');
-      var cliLink = document.getElementById('link-show-cli');
-
-      if (isMobileDevice()) {
-        if (banner) banner.style.display = 'none';
-        if (mobileNotice) mobileNotice.style.display = 'flex';
-        if (cliLink) cliLink.style.display = 'none';
-        if (btn) {
-          btn.disabled = true;
-          btn.textContent = 'Desktop required';
-          btn.title = 'Wallet signing requires a desktop browser';
+export function walletCheckerScript(autoRun?: SignMethod): string {
+  const fn = `var WalletChecker = {
+      configs: {
+        sr25519: {
+          label: 'Sign with Bittensor wallet',
+          mobileLabel: 'Desktop required',
+          mobileTitle: 'Wallet signing requires a desktop browser',
+          noWalletLabel: 'No wallet detected',
+          noWalletTitle: 'Install the Taostats Wallet extension to continue',
+          bannerId: 'bittensor-banner',
+          mobileNoticeId: 'bittensor-mobile-notice',
+          showCli: true,
+          isAvailable: function() {
+            return window.injectedWeb3 && Object.keys(window.injectedWeb3).length > 0;
+          }
+        },
+        evm: {
+          label: 'Sign with Ethereum',
+          mobileLabel: 'Open in wallet browser',
+          mobileTitle: 'Open this page in your wallet app to sign',
+          noWalletLabel: 'No wallet detected',
+          noWalletTitle: 'Install an Ethereum wallet to continue',
+          bannerId: 'evm-banner',
+          mobileNoticeId: 'evm-mobile-notice',
+          showCli: false,
+          isAvailable: function() { return !!window.ethereum; }
         }
-        return;
-      }
+      },
+      _copyBound: false,
+      check: function(method) {
+        var cfg = this.configs[method] || this.configs.sr25519;
+        var btn = document.getElementById('btn-authorize');
+        var banner = document.getElementById(cfg.bannerId);
+        var mobileNotice = document.getElementById(cfg.mobileNoticeId);
+        var cliLink = document.getElementById('link-show-cli');
 
-      if (!banner) return;
-      if (!window.injectedWeb3 || Object.keys(window.injectedWeb3).length === 0) {
-        banner.style.display = 'flex';
-        if (btn) {
-          btn.disabled = true;
-          btn.textContent = 'No wallet detected';
-          btn.title = 'Install the Taostats Wallet extension to continue';
+        // Hide the other method's banner
+        var otherKey = method === 'evm' ? 'sr25519' : 'evm';
+        var otherCfg = this.configs[otherKey];
+        var otherBanner = document.getElementById(otherCfg.bannerId);
+        var otherMobile = document.getElementById(otherCfg.mobileNoticeId);
+        if (otherBanner) otherBanner.style.display = 'none';
+        if (otherMobile) otherMobile.style.display = 'none';
+
+        if (cliLink) cliLink.style.display = cfg.showCli ? '' : 'none';
+
+        if (isMobileDevice()) {
+          if (banner) banner.style.display = 'none';
+          if (mobileNotice) mobileNotice.style.display = 'flex';
+          if (btn) {
+            btn.disabled = true;
+            btn.textContent = cfg.mobileLabel;
+            btn.title = cfg.mobileTitle;
+          }
+          if (!this._copyBound && method === 'evm') {
+            var copyBtn = document.getElementById('btn-copy-url');
+            if (copyBtn) {
+              this._copyBound = true;
+              copyBtn.addEventListener('click', function() {
+                navigator.clipboard.writeText(window.location.href).then(function() {
+                  copyBtn.textContent = 'Copied!';
+                  setTimeout(function() { copyBtn.textContent = 'Copy URL'; }, 1500);
+                });
+              });
+            }
+          }
+          return;
         }
-      } else {
-        banner.style.display = 'none';
-        if (btn) {
-          btn.disabled = false;
+
+        if (cfg.isAvailable()) {
+          if (banner) banner.style.display = 'none';
+          if (mobileNotice) mobileNotice.style.display = 'none';
+          if (btn) { btn.disabled = false; btn.textContent = cfg.label; }
+        } else {
+          if (banner) banner.style.display = 'flex';
+          if (btn) {
+            btn.disabled = true;
+            btn.textContent = cfg.noWalletLabel;
+            btn.title = cfg.noWalletTitle;
+          }
         }
       }
-    }
-    setTimeout(checkWallet, 500);
-    setTimeout(checkWallet, 2000);`;
-}
+    };`;
 
-export function ethereumBannerHtml(): string {
-  return `
-  <div id="eth-banner" class="wallet-banner" style="display:none">
-    <span id="eth-banner-text">An Ethereum wallet is required. <a href="https://ethereum.org/en/wallets/find-wallet/" target="_blank" rel="noopener noreferrer">Find a wallet</a></span>
-    <button id="banner-close">&times;</button>
-  </div>
-  <div id="eth-mobile-notice" class="wallet-banner" style="display:none">
-    <span>Open this page in your Ethereum wallet's in-app browser to sign.
-    <button id="btn-copy-url" style="background:none;border:1px solid var(--text-muted);color:var(--text-secondary);border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.8rem;margin-left:6px;">Copy URL</button></span>
-  </div>`;
-}
-
-export function checkEthereumWalletScript(): string {
-  return `function checkEthWallet() {
-      var banner = document.getElementById('eth-banner');
-      var mobileNotice = document.getElementById('eth-mobile-notice');
-      var btn = document.getElementById('btn-authorize');
-      var copyBtn = document.getElementById('btn-copy-url');
-
-      if (window.ethereum) {
-        if (banner) banner.style.display = 'none';
-        if (mobileNotice) mobileNotice.style.display = 'none';
-        if (btn) { btn.disabled = false; btn.textContent = 'Sign with Ethereum'; }
-        return;
-      }
-
-      if (isMobileDevice()) {
-        if (banner) banner.style.display = 'none';
-        if (mobileNotice) mobileNotice.style.display = 'flex';
-        if (copyBtn) {
-          copyBtn.addEventListener('click', function() {
-            navigator.clipboard.writeText(window.location.href).then(function() {
-              copyBtn.textContent = 'Copied!';
-              setTimeout(function() { copyBtn.textContent = 'Copy URL'; }, 1500);
-            });
-          });
-        }
-      } else {
-        if (banner) banner.style.display = 'flex';
-      }
-
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = 'No wallet detected';
-        btn.title = 'Install an Ethereum wallet to continue';
-      }
-    }
-    setTimeout(checkEthWallet, 500);
-    setTimeout(checkEthWallet, 2000);`;
+  if (!autoRun) return fn;
+  return fn + `
+    setTimeout(function() { WalletChecker.check('${autoRun}'); }, 500);
+    setTimeout(function() { WalletChecker.check('${autoRun}'); }, 2000);`;
 }

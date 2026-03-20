@@ -25,11 +25,9 @@ import { config } from '../config';
 import { DeviceCodeResponse } from '../types';
 import {
   escapeHtml,
-  walletBannerHtml,
+  walletBannersHtml,
   mobileDetectScript,
-  checkWalletScript,
-  checkEthereumWalletScript,
-  ethereumBannerHtml,
+  walletCheckerScript,
   authHeaderHtml,
   poweredByHtml,
   starryBackgroundHtml,
@@ -236,8 +234,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
   ${starryBackgroundHtml(cspNonce)}
   ${testnetBannerHtml()}
   ${authHeaderHtml}
-  ${walletBannerHtml()}
-  ${ethereumBannerHtml()}
+  ${walletBannersHtml()}
   <div class="auth-card">
     <h1>Device Authorization</h1>
     <p style="margin-bottom:1rem;color:var(--text-secondary);font-size:0.95rem;">Enter the code shown on your device:</p>
@@ -251,7 +248,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
         <label>Select account:</label>
         <select class="account-select" id="account-select"></select>
       </div>
-      <button class="btn-full" id="btn-authorize" disabled>Sign with browser wallet</button>
+      <button class="btn-full" id="btn-authorize" disabled>Sign with Bittensor wallet</button>
       <div class="cli-toggle"><a id="link-show-cli">Sign with CLI</a></div>
     </div>
     <div id="cli-flow" class="cli-section" style="display:none;">
@@ -284,8 +281,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
     let loadedSignMethod = 'sr25519';
 
     ${mobileDetectScript()}
-    ${checkWalletScript()}
-    ${checkEthereumWalletScript()}
+    ${walletCheckerScript()}
 
     // Auto-load scopes if user_code is pre-filled
     if (document.getElementById('user-code').value.trim()) {
@@ -336,22 +332,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
           box.style.display = 'block';
         }
 
-        // Update UI based on sign method
-        var btn = document.getElementById('btn-authorize');
-        var cliLink = document.getElementById('link-show-cli');
-        if (loadedSignMethod === 'evm') {
-          if (btn) { btn.textContent = 'Sign with Ethereum'; btn.disabled = !window.ethereum; }
-          if (cliLink) cliLink.style.display = 'none';
-          var ethBanner = document.getElementById('eth-banner');
-          var walletBanner = document.getElementById('wallet-banner');
-          if (!window.ethereum && ethBanner) ethBanner.style.display = 'flex';
-          if (walletBanner) walletBanner.style.display = 'none';
-        } else {
-          if (btn) { btn.textContent = 'Sign with browser wallet'; btn.disabled = false; }
-          if (cliLink) cliLink.style.display = '';
-          var ethBanner2 = document.getElementById('eth-banner');
-          if (ethBanner2) ethBanner2.style.display = 'none';
-        }
+        WalletChecker.check(loadedSignMethod);
       } catch {}
     }
 
@@ -382,7 +363,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
       const btn = document.getElementById('btn-authorize');
       btn.disabled = true;
       btn.textContent = 'Connecting...';
-      const btnLabel = loadedSignMethod === 'evm' ? 'Sign with Ethereum' : 'Sign with browser wallet';
+      const btnLabel = WalletChecker.configs[loadedSignMethod].label;
       try {
         const userCode = document.getElementById('user-code').value.trim().toUpperCase();
         if (!userCode) { showError('Please enter a code'); btn.disabled = false; btn.textContent = btnLabel; return; }
@@ -569,8 +550,9 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     // Event bindings
-    var bannerClose = document.getElementById('banner-close');
-    if (bannerClose) bannerClose.addEventListener('click', function() { this.parentElement.style.display = 'none'; });
+    document.querySelectorAll('.banner-close').forEach(function(el) {
+      el.addEventListener('click', function() { this.parentElement.style.display = 'none'; });
+    });
     document.getElementById('user-code').addEventListener('input', onCodeInput);
     document.getElementById('btn-authorize').addEventListener('click', connectAndSign);
     document.getElementById('link-show-cli').addEventListener('click', showCliFlow);

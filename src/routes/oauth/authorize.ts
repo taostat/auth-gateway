@@ -20,11 +20,9 @@ import { OAuthClient } from '../../types';
 import {
   escapeHtml,
   serializeForInlineScript,
-  walletBannerHtml,
+  walletBannersHtml,
   mobileDetectScript,
-  checkWalletScript,
-  checkEthereumWalletScript,
-  ethereumBannerHtml,
+  walletCheckerScript,
   authHeaderHtml,
   poweredByHtml,
   starryBackgroundHtml,
@@ -151,7 +149,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
   ${starryBackgroundHtml(cspNonce)}
   ${testnetBannerHtml()}
   ${authHeaderHtml}
-  ${isEvmClient ? ethereumBannerHtml() : walletBannerHtml()}
+  ${walletBannersHtml(clientSignMethod)}
   <div class="auth-card">
     <h1>Authorize access</h1>
     <p class="info"><strong>${escapeHtml(client.client_name)}</strong> wants to verify your wallet identity. You will sign a message to prove ownership — no transaction will be made.</p>
@@ -182,7 +180,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       </div>
       <div class="btn-row">
         <button class="btn-deny" id="btn-deny">Deny</button>
-        <button class="btn-authorize" id="btn-authorize" disabled>Sign with browser wallet</button>
+        <button class="btn-authorize" id="btn-authorize" disabled>Sign with Bittensor wallet</button>
       </div>
       <div class="cli-toggle"><a id="link-show-cli">Sign with CLI</a></div>
     </div>
@@ -227,7 +225,8 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
     let cliExpiryTimer = null;
 
     ${mobileDetectScript()}
-    ${isEvmClient ? checkEthereumWalletScript() : checkWalletScript()}
+    ${walletCheckerScript(clientSignMethod)}
+    var walletLabel = WalletChecker.configs[CONFIG.signMethod].label;
 
     function deny() {
       const params = new URLSearchParams({ error: 'access_denied' });
@@ -249,9 +248,9 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
 
         if (CONFIG.signMethod === 'evm') {
           // Ethereum wallet flow
-          if (!window.ethereum) { showError('No Ethereum wallet found'); btn.disabled = false; btn.textContent = 'Sign with Ethereum'; return; }
+          if (!window.ethereum) { showError('No Ethereum wallet found'); btn.disabled = false; btn.textContent = walletLabel; return; }
           const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-          if (!accounts || accounts.length === 0) { showError('No accounts found'); btn.disabled = false; btn.textContent = 'Sign with Ethereum'; return; }
+          if (!accounts || accounts.length === 0) { showError('No accounts found'); btn.disabled = false; btn.textContent = walletLabel; return; }
 
           if (accounts.length > 1) {
             address = await pickAccount(accounts.map(function(a) { return { address: a, meta: { name: '' } }; }));
@@ -280,13 +279,14 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
           const extensions = await web3Enable('Taostats Auth');
           if (extensions.length === 0) {
             showError('No wallet extension found');
-            btn.textContent = 'No wallet detected';
-            var banner = document.getElementById('wallet-banner');
+            btn.disabled = false;
+            btn.textContent = WalletChecker.configs.sr25519.noWalletLabel;
+            var banner = document.getElementById('bittensor-banner');
             if (banner) banner.style.display = 'flex';
             return;
           }
           var polkaAccounts = await web3Accounts();
-          if (polkaAccounts.length === 0) { showError('No accounts found'); btn.disabled = false; btn.textContent = 'Sign with browser wallet'; return; }
+          if (polkaAccounts.length === 0) { showError('No accounts found'); btn.disabled = false; btn.textContent = walletLabel; return; }
 
           if (polkaAccounts.length > 1) {
             address = await pickAccount(polkaAccounts);
@@ -340,7 +340,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       } catch (err) {
         showError(err.message);
         btn.disabled = false;
-        btn.textContent = CONFIG.signMethod === 'evm' ? 'Sign with Ethereum' : 'Sign with browser wallet';
+        btn.textContent = walletLabel;
       }
     }
 
@@ -463,8 +463,9 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     // Event bindings
-    var bannerClose = document.getElementById('banner-close');
-    if (bannerClose) bannerClose.addEventListener('click', function() { this.parentElement.style.display = 'none'; });
+    document.querySelectorAll('.banner-close').forEach(function(el) {
+      el.addEventListener('click', function() { this.parentElement.style.display = 'none'; });
+    });
     document.getElementById('btn-deny').addEventListener('click', deny);
     document.getElementById('btn-authorize').addEventListener('click', authorize);
     var showCliEl = document.getElementById('link-show-cli');
