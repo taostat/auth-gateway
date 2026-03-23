@@ -171,7 +171,7 @@ function demoPage(clients: DemoClients): string {
     <div class="card" style="margin-top:1rem;">
       <h3>OIDC ID Token</h3>
       <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:12px;">Verify wallet identity via OpenID Connect. Proves you own a Bittensor address — no on-chain role checks.</p>
-      <div style="text-align:right;"><button class="btn btn-primary" onclick="startFlow('openid').catch(showErr)">Sign with Polkadot</button></div>
+      <div style="text-align:right;"><button class="btn btn-primary" onclick="startFlow('openid').catch(showErr)">Sign with Bittensor wallet</button></div>
     </div>
 
     <div class="card" style="margin-top:1rem;">
