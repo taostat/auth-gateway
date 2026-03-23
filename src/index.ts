@@ -42,7 +42,7 @@ function createServer(): FastifyInstance {
 async function main(): Promise<void> {
   // Wait for WASM crypto to initialize
   await cryptoWaitReady();
-  console.log('Polkadot crypto ready');
+  console.log('Substrate crypto ready');
 
   // Load RSA keys
   loadKeys();
