@@ -211,3 +211,77 @@ describe('OAuth 2.0 Authorization Server Metadata (RFC 8414)', () => {
     expect(res.headers['cache-control']).toContain('max-age=3600');
   });
 });
+
+describe('GET /v1/discovery/scope-config', () => {
+  let scopeConfig: Record<string, unknown>;
+
+  beforeAll(async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/discovery/scope-config',
+    });
+    expect(res.statusCode).toBe(200);
+    scopeConfig = JSON.parse(res.payload);
+  });
+
+  test('returns 200 with correct top-level shape', () => {
+    expect(scopeConfig).toHaveProperty('scope_categories');
+    expect(scopeConfig).toHaveProperty('grant_types');
+    expect(scopeConfig).toHaveProperty('sign_methods');
+    expect(scopeConfig).toHaveProperty('evm_scope_restriction');
+  });
+
+  test('scope_categories has entries for all 5 scope types', () => {
+    const cats = scopeConfig.scope_categories as unknown[];
+    expect(cats).toHaveLength(5);
+  });
+
+  test('each scope category has required fields', () => {
+    const cats = scopeConfig.scope_categories as Record<string, unknown>[];
+    for (const cat of cats) {
+      expect(typeof cat.id).toBe('string');
+      expect(typeof cat.name).toBe('string');
+      expect(typeof cat.description).toBe('string');
+      expect(typeof cat.format).toBe('string');
+      expect(typeof cat.parameters).toBe('object');
+      expect(Array.isArray(cat.sign_methods)).toBe(true);
+      expect(typeof cat.testnet_supported).toBe('boolean');
+    }
+  });
+
+  test('parameters is a valid JSON Schema object', () => {
+    const cats = scopeConfig.scope_categories as Record<string, unknown>[];
+    for (const cat of cats) {
+      const params = cat.parameters as Record<string, unknown>;
+      expect(params.$schema).toBeDefined();
+      expect(params.type).toBe('object');
+      expect(params.properties).toBeDefined();
+      expect(typeof params.properties).toBe('object');
+    }
+  });
+
+  test('grant_types has 3 entries with correct ids', () => {
+    const grants = scopeConfig.grant_types as Record<string, unknown>[];
+    expect(grants).toHaveLength(3);
+    const ids = grants.map((g) => g.id);
+    expect(ids).toContain('authorization_code');
+    expect(ids).toContain('refresh_token');
+    expect(ids).toContain('urn:ietf:params:oauth:grant-type:device_code');
+  });
+
+  test('sign_methods has sr25519 and evm', () => {
+    const methods = scopeConfig.sign_methods as Record<string, unknown>[];
+    expect(methods).toHaveLength(2);
+    const ids = methods.map((m) => m.id);
+    expect(ids).toContain('sr25519');
+    expect(ids).toContain('evm');
+  });
+
+  test('Cache-Control header is set', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/discovery/scope-config',
+    });
+    expect(res.headers['cache-control']).toContain('max-age=3600');
+  });
+});
