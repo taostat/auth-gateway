@@ -15,7 +15,7 @@ const ss58Address = z
   .string()
   .regex(/^5[1-9A-HJ-NP-Za-km-z]{47}$/, 'Must be a valid SS58 address (starts with 5, 48 characters)');
 
-const nonNegativeInt = z.number().int().nonnegative();
+const netuid = z.number().int().nonnegative().max(65535);
 const positiveAmount = z.number().positive();
 const optionalPositiveAmount = z.number().positive().optional();
 
@@ -51,7 +51,7 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
     templates: ['subnet:*:miner', 'subnet:*:validator', 'subnet:*:owner'],
     regex: /^subnet:(\d+):(miner|owner|validator)$/,
     params: z.object({
-      netuid: nonNegativeInt.describe('Subnet ID'),
+      netuid: netuid.describe('Subnet ID'),
       role: z.enum(['miner', 'validator', 'owner']).describe('Role on the subnet'),
     }).meta({
       examples: [{ netuid: 1, role: 'miner' }, { netuid: 1, role: 'validator' }],
@@ -73,7 +73,7 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
     templates: ['subnet:*:holder', 'subnet:*:holder:{min_alpha}'],
     regex: new RegExp(`^subnet:(\\d+):holder(?::(${AMT}))?$`),
     params: z.object({
-      netuid: nonNegativeInt.describe('Subnet ID'),
+      netuid: netuid.describe('Subnet ID'),
       amount: optionalPositiveAmount.describe('Minimum alpha balance (leave empty for any amount)'),
     }).meta({
       examples: [{ netuid: 1 }, { netuid: 1, amount: 100 }],
