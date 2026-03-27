@@ -15,7 +15,7 @@ const ss58Address = z
   .string()
   .regex(/^5[1-9A-HJ-NP-Za-km-z]{47}$/, 'Must be a valid SS58 address (starts with 5, 48 characters)');
 
-const netuid = z.number().int().nonnegative().max(65535);
+const netuid = z.number().int().nonnegative().max(32768);
 const positiveAmount = z.number().positive();
 const optionalPositiveAmount = z.number().positive().optional();
 
