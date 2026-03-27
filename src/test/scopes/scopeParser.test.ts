@@ -1,4 +1,4 @@
-import { parseScope, validateScopeFormat, describeScope, enforceClientScopes } from '../../scopes/index';
+import { parseScope, validateScopeFormat, describeScope, enforceClientScopes, validateScopesForSignMethod } from '../../scopes/index';
 import { taoStringToRao } from '../../taostats/client';
 
 const RAO = 1_000_000_000n;
@@ -191,6 +191,39 @@ describe('enforceClientScopes', () => {
 
   test('staker scope passes when explicitly listed', () => {
     expect(() => enforceClientScopes(['staker:1000'], ['staker:1000'])).not.toThrow();
+  });
+});
+
+describe('validateScopesForSignMethod', () => {
+  test('sr25519 allows all scope types', () => {
+    const scopes = [
+      'openid',
+      'subnet:1:miner',
+      'tao:holder',
+      `delegate:${HOTKEY}`,
+      'staker:1000',
+    ];
+    expect(() => validateScopesForSignMethod(scopes, 'sr25519')).not.toThrow();
+  });
+
+  test('evm allows openid', () => {
+    expect(() => validateScopesForSignMethod(['openid'], 'evm')).not.toThrow();
+  });
+
+  test('evm rejects subnet scope', () => {
+    expect(() => validateScopesForSignMethod(['subnet:1:miner'], 'evm')).toThrow('not available for EVM');
+  });
+
+  test('evm rejects tao scope', () => {
+    expect(() => validateScopesForSignMethod(['tao:holder'], 'evm')).toThrow('not available for EVM');
+  });
+
+  test('evm rejects delegate scope', () => {
+    expect(() => validateScopesForSignMethod([`delegate:${HOTKEY}`], 'evm')).toThrow('not available for EVM');
+  });
+
+  test('evm rejects staker scope', () => {
+    expect(() => validateScopesForSignMethod(['staker:1000'], 'evm')).toThrow('not available for EVM');
   });
 });
 

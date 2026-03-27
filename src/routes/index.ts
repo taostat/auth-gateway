@@ -29,4 +29,5 @@ export async function registerAdminRoutes(
 ): Promise<void> {
   await fastify.register(adminRoutes);
   await fastify.register(healthRoutes);
+  await fastify.register(discoveryRoutes);
 }
