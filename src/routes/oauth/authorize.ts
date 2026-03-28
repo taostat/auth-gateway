@@ -240,6 +240,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     async function authorize() {
+      if (pickingAccount) return;
       const btn = document.getElementById('btn-authorize');
       btn.disabled = true;
       btn.textContent = 'Connecting...';
@@ -433,8 +434,10 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       }
     }
 
+    var pickingAccount = false;
     function pickAccount(accounts) {
       return new Promise((resolve) => {
+        pickingAccount = true;
         const picker = document.getElementById('account-picker');
         const select = document.getElementById('account-select');
         const btn = document.getElementById('btn-authorize');
@@ -448,9 +451,12 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         picker.style.display = 'block';
         btn.textContent = 'Sign with selected account';
         btn.disabled = false;
-        btn.onclick = () => {
+        btn.onclick = (e) => {
+          e.stopImmediatePropagation();
           picker.style.display = 'none';
           btn.disabled = true;
+          btn.onclick = null;
+          pickingAccount = false;
           resolve(select.value);
         };
       });
