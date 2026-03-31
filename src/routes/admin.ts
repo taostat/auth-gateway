@@ -202,6 +202,13 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
       const { client_id } = request.params;
       const body = request.body;
 
+      // Reject empty updates
+      const hasUpdates = body.client_name || body.redirect_uris || body.grant_types
+        || body.allowed_scopes || body.allowed_origins || body.rate_limit != null;
+      if (!hasUpdates) {
+        throw new AuthError('No updatable fields provided', 400, 'Bad Request');
+      }
+
       // Validate redirect URIs if provided
       if (body.redirect_uris) {
         for (const uri of body.redirect_uris) {
