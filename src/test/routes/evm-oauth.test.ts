@@ -35,7 +35,7 @@ jest.mock('../../subtensor/queries', () => {
 });
 
 import { FastifyInstance } from 'fastify';
-import { buildTestApp } from '../helpers/app';
+import { browserPost, buildTestApp } from '../helpers/app';
 import { getTestEvmAddress, signWithTestEvmWallet } from '../helpers/evmSign';
 import crypto from 'crypto';
 import { verifyToken, verifyIdToken } from '../../crypto/jwt';
@@ -83,7 +83,29 @@ beforeEach(() => {
   );
 });
 
-/** Helper: challenge -> sign -> callback -> token exchange */
+async function getEvmOAuthChallenge(opts: {
+  clientId: string;
+  redirectUri?: string;
+  address?: string;
+  scopes?: string[];
+  codeChallenge?: string;
+}): Promise<{ sessionId: string; nonce: string }> {
+  const { createAuthorizeSession } = require('../../db/authorizeSessions');
+  const sessionId = await createAuthorizeSession({
+    clientId: opts.clientId,
+    redirectUri: opts.redirectUri ?? 'http://localhost:3001/callback',
+    scopes: opts.scopes ?? [],
+    codeChallenge: opts.codeChallenge,
+  });
+  const res = await browserPost(app, '/v1/oauth/challenge', {
+    session_id: sessionId,
+    ...(opts.address ? { address: opts.address } : {}),
+  });
+  expect(res.statusCode).toBe(200);
+  const { nonce } = JSON.parse(res.payload);
+  return { sessionId, nonce };
+}
+
 async function doEvmOAuthFlow(
   clientId: string,
   opts: { scopes?: string[]; codeVerifier?: string; codeChallenge?: string; clientSecret?: string } = {},
@@ -91,30 +113,20 @@ async function doEvmOAuthFlow(
   const evmAddress = getTestEvmAddress();
   const scopes = opts.scopes ?? ['openid'];
 
-  // 1. Get challenge
-  const challengeRes = await app.inject({
-    method: 'POST',
-    url: '/v1/auth/challenge',
-    payload: { address: evmAddress, scopes },
+  const { sessionId, nonce } = await getEvmOAuthChallenge({
+    clientId,
+    address: evmAddress,
+    scopes,
+    codeChallenge: opts.codeChallenge,
   });
-  expect(challengeRes.statusCode).toBe(200);
-  const { nonce } = JSON.parse(challengeRes.payload);
 
-  // 2. Sign
   const signature = await signWithTestEvmWallet(nonce);
 
-  // 3. Callback
-  const callbackRes = await app.inject({
-    method: 'POST',
-    url: '/v1/oauth/callback',
-    payload: {
-      nonce,
-      address: evmAddress,
-      signature,
-      client_id: clientId,
-      redirect_uri: 'http://localhost:3001/callback',
-      code_challenge: opts.codeChallenge,
-    },
+  const callbackRes = await browserPost(app, '/v1/oauth/callback', {
+    session_id: sessionId,
+    nonce,
+    address: evmAddress,
+    signature,
   });
   expect(callbackRes.statusCode).toBe(200);
   const { code } = JSON.parse(callbackRes.payload);
@@ -145,27 +157,18 @@ describe('EVM OAuth Routes', () => {
     test('rejects sr25519 address for EVM client', async () => {
       const ss58 = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
 
-      const challengeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/challenge',
-        payload: { address: ss58 },
+      const { sessionId, nonce } = await getEvmOAuthChallenge({
+        clientId: EVM_CLIENT_ID,
       });
-      const { nonce } = JSON.parse(challengeRes.payload);
 
-      // Import Alice signing for an sr25519 sig
       const { signWithAlice } = require('../helpers/sign');
       const signature = await signWithAlice(nonce);
 
-      const callbackRes = await app.inject({
-        method: 'POST',
-        url: '/v1/oauth/callback',
-        payload: {
-          nonce,
-          address: ss58,
-          signature,
-          client_id: EVM_CLIENT_ID,
-          redirect_uri: 'http://localhost:3001/callback',
-        },
+      const callbackRes = await browserPost(app, '/v1/oauth/callback', {
+        session_id: sessionId,
+        nonce,
+        address: ss58,
+        signature,
       });
       expect(callbackRes.statusCode).toBe(400);
       const body = JSON.parse(callbackRes.payload);

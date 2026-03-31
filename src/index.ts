@@ -21,12 +21,18 @@ import { getAllowedOrigins } from './db/clients';
 import { startRefreshTokenCleanup, stopRefreshTokenCleanup, waitForRefreshTokenCleanup } from './db/refreshTokens';
 import { ensureDemoClients } from './demo';
 import { setDemoClients } from './routes/landing';
+import { normalizeAllowedOrigin } from './middleware/origin';
+import {
+  startAuthorizeSessionCleanup,
+  stopAuthorizeSessionCleanup,
+  waitForAuthorizeSessionCleanup,
+} from './db/authorizeSessions';
 
 function createServer(): FastifyInstance {
   const server = Fastify({
     logger: { level: config.nodeEnv === 'production' ? 'info' : 'debug' },
     bodyLimit: config.jsonBodyLimitBytes,
-    trustProxy: true,
+    trustProxy: config.trustProxy,
   });
   server.setValidatorCompiler(validatorCompiler);
   server.setSerializerCompiler(serializerCompiler);
@@ -115,25 +121,25 @@ async function main(): Promise<void> {
   // Register plugins — dynamic CORS origin validation
   await server.register(cors, {
     origin: async (origin: string | undefined) => {
-      // No origin (e.g. server-to-server, curl) — allow
       if (!origin) return true;
 
-      // Check against all active clients' allowed_origins
+      let normalizedOrigin: string;
+      try {
+        normalizedOrigin = normalizeAllowedOrigin(origin);
+      } catch {
+        return false;
+      }
+
       try {
         const allowedOrigins = await getAllowedOrigins();
-        if (allowedOrigins.has(origin)) return true;
+        if (allowedOrigins.has(normalizedOrigin)) return true;
       } catch {
         // DB not available — fall back to deny
       }
 
-      // In development, allow localhost origins
       if (config.nodeEnv !== 'production') {
-        try {
-          const url = new URL(origin);
-          if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') return true;
-        } catch {
-          /* invalid origin */
-        }
+        const url = new URL(normalizedOrigin);
+        if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') return true;
       }
 
       return false;
@@ -173,6 +179,7 @@ async function main(): Promise<void> {
   startDeviceCodeCleanup();
   startAuthCodeCleanup();
   startRefreshTokenCleanup();
+  startAuthorizeSessionCleanup();
 
   // Start servers
   const listenOpts = { host: config.host };
@@ -203,11 +210,13 @@ async function main(): Promise<void> {
     stopDeviceCodeCleanup();
     stopAuthCodeCleanup();
     stopRefreshTokenCleanup();
+    stopAuthorizeSessionCleanup();
     await Promise.allSettled([
       waitForChallengeCleanup(),
       waitForDeviceCodeCleanup(),
       waitForAuthCodeCleanup(),
       waitForRefreshTokenCleanup(),
+      waitForAuthorizeSessionCleanup(),
     ]);
     if (adminServer) await adminServer.close();
     await server.close();

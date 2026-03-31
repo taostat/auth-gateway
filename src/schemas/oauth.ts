@@ -12,13 +12,15 @@ export const AuthorizeQuerySchema = z.object({
 });
 
 export const CallbackBodySchema = z.object({
+  session_id: z.string(),
   nonce: z.string(),
   address: z.string(),
   signature: z.string(),
-  client_id: z.string(),
-  redirect_uri: z.string().optional(),
-  code_challenge: z.string().optional(),
-  oidc_nonce: z.string().optional(),
+});
+
+export const OAuthChallengeBodySchema = z.object({
+  session_id: z.string(),
+  address: z.string().optional(),
 });
 
 export const TokenBodySchema = z.object({

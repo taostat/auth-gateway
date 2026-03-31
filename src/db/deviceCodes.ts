@@ -1,3 +1,4 @@
+import type { PoolClient } from 'pg';
 import { getPool } from './pool';
 
 export interface DbDeviceCode {
@@ -98,6 +99,60 @@ export async function denyDeviceCode(userCode: string): Promise<boolean> {
 export async function updateLastPolledAt(deviceCode: string): Promise<void> {
   const pool = getPool();
   await pool.query('UPDATE device_codes SET last_polled_at = now() WHERE device_code = $1', [deviceCode]);
+}
+
+export async function beginDeviceCodeRedemption(
+  deviceCode: string,
+): Promise<{ client: PoolClient; entry: DbDeviceCode } | null> {
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query<DeviceCodeRow>(
+      `SELECT * FROM device_codes
+       WHERE device_code = $1
+       FOR UPDATE`,
+      [deviceCode],
+    );
+    const row = rows[0];
+    if (!row) {
+      await client.query('ROLLBACK');
+      client.release();
+      return null;
+    }
+    return { client, entry: rowToDeviceCode(row) };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    client.release();
+    throw err;
+  }
+}
+
+export async function updateLockedDeviceCodeLastPolledAt(client: PoolClient, deviceCode: string): Promise<void> {
+  await client.query('UPDATE device_codes SET last_polled_at = now() WHERE device_code = $1', [deviceCode]);
+}
+
+export async function deleteLockedDeviceCode(client: PoolClient, deviceCode: string): Promise<void> {
+  await client.query('DELETE FROM device_codes WHERE device_code = $1', [deviceCode]);
+}
+
+export async function commitDeviceCodeRedemption(client: PoolClient): Promise<void> {
+  try {
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function rollbackDeviceCodeRedemption(client: PoolClient): Promise<void> {
+  try {
+    await client.query('ROLLBACK');
+  } finally {
+    client.release();
+  }
 }
 
 export async function deleteDeviceCode(deviceCode: string): Promise<void> {

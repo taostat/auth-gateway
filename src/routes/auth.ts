@@ -11,7 +11,7 @@ import {
   resolveSignerContext,
   resolveEvmSignerContext,
 } from '../scopes';
-import { InvalidAddressError } from '../util/errors';
+import { AuthError, InvalidAddressError } from '../util/errors';
 import { config } from '../config';
 import { ChallengeBodySchema, VerifyBodySchema } from '../schemas/auth';
 import { ChallengeResponseSchema, TokenResponseSchema } from '../schemas/responses';
@@ -55,7 +55,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         validateScopes(scopes);
       }
 
-      const challenge = await createChallenge(address || null, scopes);
+      const challenge = await createChallenge(address || null, scopes, { flowType: 'auth' });
 
       const response: ChallengeResponse = {
         nonce: challenge.nonce,
@@ -95,6 +95,10 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
       // Consume challenge (single-use, throws if expired/missing)
       const challenge = await consumeChallenge(nonce);
+
+      if (challenge.flowType && challenge.flowType !== 'auth') {
+        throw new AuthError('Challenge was created for a different authentication flow', 400, 'Bad Request');
+      }
 
       // Verify address matches the challenge (skip if challenge was created without address)
       if (challenge.address && challenge.address !== address) {

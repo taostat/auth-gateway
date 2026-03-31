@@ -3,6 +3,20 @@ import { getPool } from './pool';
 import { OAuthClient } from '../types';
 import { BoundedMap } from '../util/boundedMap';
 
+const invalidStoredOriginsWarned = new Set<string>();
+
+function safeNormalizeOrigin(origin: string): string {
+  try {
+    return new URL(origin).origin;
+  } catch {
+    if (!invalidStoredOriginsWarned.has(origin)) {
+      invalidStoredOriginsWarned.add(origin);
+      console.warn(`Invalid stored allowed_origin preserved without normalization: ${origin}`);
+    }
+    return origin;
+  }
+}
+
 const CACHE_TTL_MS = 60_000; // 60 seconds
 const SCRYPT_KEYLEN = 64;
 const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1 };
@@ -77,7 +91,7 @@ function fromRow(row: OAuthClientRow): OAuthClient {
     redirect_uris: row.redirect_uris || [],
     grant_types: row.grant_types || [],
     allowed_scopes: row.allowed_scopes || [],
-    allowed_origins: row.allowed_origins || [],
+    allowed_origins: (row.allowed_origins || []).map(safeNormalizeOrigin),
     allowed_sign_methods: row.allowed_sign_methods || [],
     rate_limit: row.rate_limit,
     active: row.active,
@@ -182,10 +196,7 @@ const UPDATABLE_COLUMNS: (keyof UpdateClientFields)[] = [
   'rate_limit',
 ];
 
-export async function updateClient(
-  clientId: string,
-  fields: UpdateClientFields,
-): Promise<OAuthClient | null> {
+export async function updateClient(clientId: string, fields: UpdateClientFields): Promise<OAuthClient | null> {
   const pool = getPool();
 
   const setClauses: string[] = [];
@@ -286,7 +297,7 @@ export async function getAllowedOrigins(): Promise<Set<string>> {
   const origins = new Set<string>();
   for (const row of rows) {
     for (const origin of row.allowed_origins || []) {
-      origins.add(origin);
+      origins.add(safeNormalizeOrigin(origin));
     }
   }
 
@@ -297,4 +308,5 @@ export async function getAllowedOrigins(): Promise<Set<string>> {
 export function clearClientCache(): void {
   clientCache.clear();
   originsCache = null;
+  invalidStoredOriginsWarned.clear();
 }

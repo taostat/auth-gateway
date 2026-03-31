@@ -1,3 +1,4 @@
+import type { Pool, PoolClient } from 'pg';
 import { getPool } from './pool';
 import { RefreshTokenRecord } from '../types';
 
@@ -17,9 +18,8 @@ export async function storeRefreshToken(opts: {
   scopes: string[];
   epoch_at_issuance: number | null;
   expires_at: Date;
-}): Promise<void> {
-  const pool = getPool();
-  await pool.query(
+}, db: Pool | PoolClient = getPool()): Promise<void> {
+  await db.query(
     `INSERT INTO refresh_tokens (jti, client_id, address, scopes, epoch_at_issuance, expires_at)
      VALUES ($1, $2, $3, $4, $5, $6)`,
     [opts.jti, opts.client_id, opts.address, opts.scopes, opts.epoch_at_issuance, opts.expires_at],

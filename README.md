@@ -23,7 +23,7 @@
 - **OIDC support**: Discovery metadata + ID token issuance (`openid` scope, optional `nonce`)
 - **On-chain scope verification**: Validates miner, validator, owner, and holder roles against Subtensor state (Bittensor wallets)
 - **Epoch-aligned re-verification**: Skips redundant on-chain calls within the same epoch
-- **PKCE support**: Required for public clients (S256 only)
+- **PKCE support**: Required for public clients; when `code_challenge` is sent, this server requires explicit `code_challenge_method=S256`
 - **Refresh token rotation**: DB-backed with revocation support
 - **Client registration**: Admin API for managing OAuth clients
 
@@ -129,10 +129,13 @@ npx tsx scripts/create-client.ts
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/v1/oauth/authorize` | GET | Authorization page (browser redirect, supports OIDC `nonce`) |
+| `/v1/oauth/authorize` | GET | Authorization page (browser redirect, `response_type=code` required) |
+| `/v1/oauth/challenge` | POST | Create an OAuth-bound signing challenge (`session_id` required) |
 | `/v1/oauth/callback` | POST | Internal: exchange signed challenge for auth code |
 | `/v1/oauth/token` | POST | Exchange auth code for access + refresh tokens (+ `id_token` when `openid` is requested) |
 | `/v1/oauth/refresh` | POST | Refresh token rotation |
+
+PKCE policy: when sending `code_challenge`, clients must also send explicit `code_challenge_method=S256`. This server does not apply RFC 7636 defaulting.
 
 ### Device Code (RFC 8628)
 
@@ -145,12 +148,16 @@ npx tsx scripts/create-client.ts
 | `/v1/device/confirm` | POST | Confirm approval with signature |
 | `/v1/device/scopes` | GET | Look up scopes for a user code |
 
+Confidential clients must authenticate when calling `/v1/device/code`. Public clients may omit `client_secret`.
+
 ### Admin
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/v1/admin/clients` | POST | Register a new OAuth client |
 | `/v1/admin/clients` | GET | List all registered clients |
+| `/v1/admin/clients/:id` | PATCH | Update mutable client fields |
+| `/v1/admin/clients/:id/rotate-secret` | POST | Rotate client secret |
 | `/v1/admin/clients/:id` | DELETE | Deactivate a client |
 
 ### Discovery & Health
@@ -176,6 +183,7 @@ npx tsx scripts/create-client.ts
 | `PORT` | Server port | `3000` | No |
 | `HOST` | Bind address | `0.0.0.0` | No |
 | `NODE_ENV` | Environment | `development` | No |
+| `TRUST_PROXY` | Fastify proxy trust setting (`false`, `true`, hop count, or trusted proxy list) | `false` | No |
 | `NETWORK` | Network mode (`mainnet` or `testnet`) | `mainnet` | No |
 | `RSA_PRIVATE_KEY_PATH` | Path to RSA private key | — | Yes* |
 | `RSA_PUBLIC_KEY_PATH` | Path to RSA public key | — | Yes* |
@@ -255,7 +263,9 @@ Scopes are verified on-chain during initial authentication and **always re-verif
 - **DB-backed stores**: Challenges, device codes, and consumed auth codes stored in PostgreSQL (multi-instance safe)
 - **Refresh token rotation**: Old token revoked after new one is stored (safe ordering)
 - **Admin API key**: Required in production (`ADMIN_API_KEY` must be set)
-- **Redirect URI validation**: Whitelisted against registered URIs, HTTPS required in production, fragments rejected
+- **Challenge flow binding**: Challenges are bound to their flow (auth, oauth, device) with client/redirect/user-code context, preventing cross-flow reuse
+- **Origin enforcement**: Per-client `allowed_origins` on token/device endpoints; same-origin enforcement on browser-only endpoints
+- **Redirect URI validation**: Whitelisted against registered URIs, HTTPS required in production, fragments and embedded credentials rejected
 - **Non-root Docker**: Production container runs as non-root user
 - **Rate limiting**: Per-IP and per-client rate limiting on all endpoints
 - **Epoch-aligned access tokens**: Access tokens expire at the next epoch boundary, naturally gating scope re-verification frequency
@@ -290,7 +300,8 @@ src/
 │   └── consumedAuthCodes.ts   # Auth code replay prevention
 ├── middleware/
 │   ├── clientAuth.ts          # Client authentication extraction
-│   └── clientRateLimit.ts     # Per-client rate limiting
+│   ├── clientRateLimit.ts     # Per-client rate limiting
+│   └── origin.ts              # Origin validation and enforcement
 ├── routes/
 │   ├── index.ts               # Route registration
 │   ├── auth.ts                # Challenge-response flow
@@ -371,6 +382,7 @@ Migration files are in `migrations/` and tracked in the `_migrations` table.
 - Set `NODE_ENV=production`
 - Set a strong `ADMIN_API_KEY`
 - Use HTTPS via a reverse proxy (nginx, Caddy, etc.)
+- Set `TRUST_PROXY` to match your ingress / proxy topology
 - Provide RSA keys via `RSA_PRIVATE_KEY_BASE64` / `RSA_PUBLIC_KEY_BASE64`
 - Configure `PUBLIC_URL` to your external URL
 - Set `VERIFICATION_URI` to your public device verification URL
@@ -393,6 +405,7 @@ The gateway implements OAuth2 plus a focused OIDC subset (Discovery + JWKS + Aut
 Supported OIDC surface:
 
 - Authorization Code flow (`response_type=code`) with PKCE `S256`
+- Server policy note: when sending `code_challenge`, clients must also send explicit `code_challenge_method=S256` (no RFC 7636 defaulting)
 - Discovery document (`/.well-known/openid-configuration`) and JWKS (`/.well-known/jwks.json`)
 - `openid` scope and ID token issuance from `/v1/oauth/token`
 - `nonce` passthrough (`/v1/oauth/authorize` → `id_token.nonce`)

@@ -8,8 +8,15 @@ import { verifyScopes, resolveSignerContext, resolveEvmSignerContext } from '../
 import { authenticateClient } from '../../middleware/clientAuth';
 import { getClientSignMethod } from '../../crypto/address';
 import { checkClientRateLimit } from '../../middleware/clientRateLimit';
+import { getPool } from '../../db/pool';
 import { storeRefreshToken, rotateRefreshToken, getRefreshToken, RotateError } from '../../db/refreshTokens';
-import { getDeviceCode as dbGetDeviceCode, deleteDeviceCode, updateLastPolledAt } from '../../db/deviceCodes';
+import {
+  beginDeviceCodeRedemption,
+  commitDeviceCodeRedemption,
+  rollbackDeviceCodeRedemption,
+  deleteLockedDeviceCode,
+  updateLockedDeviceCodeLastPolledAt,
+} from '../../db/deviceCodes';
 import {
   AuthError,
   OAuthErrorCode,
@@ -24,6 +31,7 @@ import { TokenResponse } from '../../types';
 import { getEpochInfo } from './shared';
 import { TokenBodySchema } from '../../schemas/oauth';
 import { TokenResponseSchema } from '../../schemas/responses';
+import { enforceAllowedOriginForClient } from '../../middleware/origin';
 
 type TokenBody = z.infer<typeof TokenBodySchema>;
 type TokenClient = { client_id: string; rate_limit: number; grant_types: string[]; allowed_sign_methods: string[] };
@@ -114,6 +122,14 @@ async function handleAuthorizationCode(
     if (!claims.code_challenge) {
       throw new AuthError('Auth code was issued without code_challenge', 400, OAuthErrorCode.INVALID_REQUEST);
     }
+    const codeChallengeMethod = claims.code_challenge_method ?? 'S256';
+    if (codeChallengeMethod !== 'S256') {
+      throw new AuthError(
+        'Auth code was issued without supported code_challenge_method',
+        400,
+        OAuthErrorCode.INVALID_REQUEST,
+      );
+    }
     if (!verifyCodeVerifier(code_verifier, claims.code_challenge)) {
       throw new AuthError('PKCE verification failed', 401, OAuthErrorCode.INVALID_GRANT);
     }
@@ -128,16 +144,41 @@ async function handleAuthorizationCode(
 
   const { accessExpiry, epoch } = await getEpochInfo(scopes);
 
-  const firstConsumption = await markAuthCodeConsumed(claims.jti);
-  if (!firstConsumption) {
-    throw new AuthError('Authorization code has already been used', 401, OAuthErrorCode.INVALID_GRANT);
-  }
-
   const refreshJti = randomUUID();
   const hotkey = claims.hotkey ?? null;
   const coldkey = claims.coldkey ?? null;
   const evmAddress = claims.evm_address ?? null;
   const authTime = claims.auth_time ?? Math.floor(Date.now() / 1000);
+
+  // Atomically consume auth code and store refresh token in one transaction.
+  // If storeRefreshToken fails, the consumed marker rolls back too.
+  const pool = getPool();
+  const txClient = await pool.connect();
+  try {
+    await txClient.query('BEGIN');
+    const firstConsumption = await markAuthCodeConsumed(claims.jti, txClient);
+    if (!firstConsumption) {
+      await txClient.query('ROLLBACK');
+      throw new AuthError('Authorization code has already been used', 401, OAuthErrorCode.INVALID_GRANT);
+    }
+    await storeRefreshToken(
+      {
+        jti: refreshJti,
+        client_id: client.client_id,
+        address,
+        scopes,
+        epoch_at_issuance: epoch,
+        expires_at: new Date(Date.now() + config.jwtRefreshTokenExpiry * 1000),
+      },
+      txClient,
+    );
+    await txClient.query('COMMIT');
+  } catch (err) {
+    await txClient.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    txClient.release();
+  }
 
   const accessToken = createAccessToken(address, scopes, {
     client_id: client.client_id,
@@ -154,15 +195,6 @@ async function handleAuthorizationCode(
     hotkey,
     coldkey,
     evm_address: evmAddress,
-  });
-
-  await storeRefreshToken({
-    jti: refreshJti,
-    client_id: client.client_id,
-    address,
-    scopes,
-    epoch_at_issuance: epoch,
-    expires_at: new Date(Date.now() + config.jwtRefreshTokenExpiry * 1000),
   });
 
   return reply.code(200).send(
@@ -308,99 +340,132 @@ async function handleDeviceCode(
     throw new AuthError('Missing required parameter: device_code', 400, OAuthErrorCode.INVALID_REQUEST);
   }
 
-  const entry = await dbGetDeviceCode(device_code);
-
-  if (!entry) {
+  const redemption = await beginDeviceCodeRedemption(device_code);
+  if (!redemption) {
     throw new DeviceCodeError('Invalid device code', 404);
   }
+  const { client: redemptionClient, entry: claimed } = redemption;
+  let redemptionSettled = false;
 
-  if (entry.clientId !== client.client_id) {
-    throw new InvalidClientError('client_id mismatch');
-  }
+  try {
+    if (claimed.clientId !== client.client_id) {
+      throw new InvalidClientError('client_id mismatch');
+    }
 
-  if (new Date() > entry.expiresAt) {
-    await deleteDeviceCode(device_code);
-    throw new AuthError('Device code expired', 400, OAuthErrorCode.EXPIRED_TOKEN);
-  }
+    if (new Date() > claimed.expiresAt) {
+      await deleteLockedDeviceCode(redemptionClient, device_code);
+      redemptionSettled = true;
+      await commitDeviceCodeRedemption(redemptionClient);
+      throw new AuthError('Device code expired', 400, OAuthErrorCode.EXPIRED_TOKEN);
+    }
 
-  if (entry.denied) {
-    await deleteDeviceCode(device_code);
-    throw new AuthError('Authorization denied', 400, OAuthErrorCode.ACCESS_DENIED);
-  }
+    if (claimed.denied) {
+      await deleteLockedDeviceCode(redemptionClient, device_code);
+      redemptionSettled = true;
+      await commitDeviceCodeRedemption(redemptionClient);
+      throw new AuthError('Authorization denied', 400, OAuthErrorCode.ACCESS_DENIED);
+    }
 
-  if (!entry.approved || !entry.address) {
-    if (entry.lastPolledAt) {
-      const elapsed = Date.now() - entry.lastPolledAt.getTime();
-      if (elapsed < config.deviceCodePollInterval * 1000) {
-        throw new SlowDownError();
+    if (!claimed.approved || !claimed.address) {
+      if (claimed.lastPolledAt) {
+        const elapsed = Date.now() - claimed.lastPolledAt.getTime();
+        if (elapsed < config.deviceCodePollInterval * 1000) {
+          await rollbackDeviceCodeRedemption(redemptionClient);
+          redemptionSettled = true;
+          throw new SlowDownError();
+        }
+      }
+
+      await updateLockedDeviceCodeLastPolledAt(redemptionClient, device_code);
+      redemptionSettled = true;
+      await commitDeviceCodeRedemption(redemptionClient);
+      throw new AuthorizationPendingError();
+    }
+
+    const isEvm = getClientSignMethod(client.allowed_sign_methods) === 'evm';
+
+    let signerCtx;
+    let accessExpiry: number;
+    let epoch: number | null = null;
+
+    if (isEvm) {
+      signerCtx = resolveEvmSignerContext(claimed.address!);
+      accessExpiry = config.jwtAccessTokenExpiry;
+    } else {
+      const [epochInfo, ctx] = await Promise.all([
+        getEpochInfo(claimed.scopes),
+        resolveSignerContext(claimed.address!),
+      ]);
+      signerCtx = ctx;
+      accessExpiry = epochInfo.accessExpiry;
+      epoch = epochInfo.epoch;
+
+      if (claimed.scopes.length > 0) {
+        await verifyScopes(signerCtx, claimed.scopes);
       }
     }
-    await updateLastPolledAt(device_code);
-    throw new AuthorizationPendingError();
-  }
 
-  await deleteDeviceCode(device_code);
-
-  const isEvm = getClientSignMethod(client.allowed_sign_methods) === 'evm';
-
-  let signerCtx;
-  let accessExpiry: number;
-  let epoch: number | null = null;
-
-  if (isEvm) {
-    signerCtx = resolveEvmSignerContext(entry.address);
-    accessExpiry = config.jwtAccessTokenExpiry;
-  } else {
-    const [epochInfo, ctx] = await Promise.all([getEpochInfo(entry.scopes), resolveSignerContext(entry.address)]);
-    signerCtx = ctx;
-    accessExpiry = epochInfo.accessExpiry;
-    epoch = epochInfo.epoch;
-
-    if (entry.scopes.length > 0) {
-      await verifyScopes(signerCtx, entry.scopes);
-    }
-  }
-
-  const refreshJti = randomUUID();
-  const authTime = entry.approvedAt ? Math.floor(entry.approvedAt.getTime() / 1000) : Math.floor(Date.now() / 1000);
-  const accessToken = createAccessToken(entry.address, entry.scopes, {
-    client_id: client.client_id,
-    expiresIn: accessExpiry,
-    hotkey: signerCtx.hotkey,
-    coldkey: signerCtx.coldkey,
-    evm_address: signerCtx.evmAddress,
-  });
-  const refreshToken = createRefreshToken(entry.address, entry.scopes, {
-    jti: refreshJti,
-    client_id: client.client_id,
-    epoch: epoch ?? undefined,
-    auth_time: authTime,
-    hotkey: signerCtx.hotkey,
-    coldkey: signerCtx.coldkey,
-    evm_address: signerCtx.evmAddress,
-  });
-
-  await storeRefreshToken({
-    jti: refreshJti,
-    client_id: client.client_id,
-    address: entry.address,
-    scopes: entry.scopes,
-    epoch_at_issuance: epoch,
-    expires_at: new Date(Date.now() + config.jwtRefreshTokenExpiry * 1000),
-  });
-
-  return reply.code(200).send(
-    buildTokenResponse(entry.address, accessToken, refreshToken, entry.scopes, accessExpiry, {
+    const refreshJti = randomUUID();
+    const authTime = claimed.approvedAt
+      ? Math.floor(claimed.approvedAt.getTime() / 1000)
+      : Math.floor(Date.now() / 1000);
+    const accessToken = createAccessToken(claimed.address!, claimed.scopes, {
       client_id: client.client_id,
+      expiresIn: accessExpiry,
       hotkey: signerCtx.hotkey,
       coldkey: signerCtx.coldkey,
-      auth_time: authTime,
       evm_address: signerCtx.evmAddress,
-    }),
-  );
+    });
+    const refreshToken = createRefreshToken(claimed.address!, claimed.scopes, {
+      jti: refreshJti,
+      client_id: client.client_id,
+      epoch: epoch ?? undefined,
+      auth_time: authTime,
+      hotkey: signerCtx.hotkey,
+      coldkey: signerCtx.coldkey,
+      evm_address: signerCtx.evmAddress,
+    });
+
+    await storeRefreshToken(
+      {
+        jti: refreshJti,
+        client_id: client.client_id,
+        address: claimed.address!,
+        scopes: claimed.scopes,
+        epoch_at_issuance: epoch,
+        expires_at: new Date(Date.now() + config.jwtRefreshTokenExpiry * 1000),
+      },
+      redemptionClient,
+    );
+
+    await deleteLockedDeviceCode(redemptionClient, device_code);
+    redemptionSettled = true;
+    await commitDeviceCodeRedemption(redemptionClient);
+
+    return reply.code(200).send(
+      buildTokenResponse(claimed.address!, accessToken, refreshToken, claimed.scopes, accessExpiry, {
+        client_id: client.client_id,
+        hotkey: signerCtx.hotkey,
+        coldkey: signerCtx.coldkey,
+        auth_time: authTime,
+        evm_address: signerCtx.evmAddress,
+      }),
+    );
+  } catch (err) {
+    if (!redemptionSettled) {
+      await rollbackDeviceCodeRedemption(redemptionClient);
+    }
+    throw err;
+  }
 }
 
 export async function tokenRoutes(fastify: FastifyInstance): Promise<void> {
+  // RFC 6749 §5.1: token responses MUST include these cache headers
+  fastify.addHook('onSend', async (_request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    reply.header('Pragma', 'no-cache');
+  });
+
   // POST /v1/oauth/token — unified token endpoint (RFC 6749)
   fastify.post(
     '/v1/oauth/token',
@@ -420,6 +485,7 @@ export async function tokenRoutes(fastify: FastifyInstance): Promise<void> {
     ) => {
       const { grant_type } = request.body;
       const { client, pkceRequired } = await authenticateClient(request);
+      enforceAllowedOriginForClient(request, client.allowed_origins);
       checkClientRateLimit(client.client_id, client.rate_limit);
 
       const allowedGrant =
@@ -472,6 +538,7 @@ export async function tokenRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const { client } = await authenticateClient(request);
+      enforceAllowedOriginForClient(request, client.allowed_origins);
       checkClientRateLimit(client.client_id, client.rate_limit);
 
       return handleRefreshToken(request, reply, client);

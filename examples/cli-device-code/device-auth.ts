@@ -9,6 +9,7 @@
  * Environment variables:
  *   AUTH_GATEWAY_URL  Base URL of the auth gateway (default: http://localhost:3000)
  *   CLIENT_ID         Client ID (overridden by CLI arg)
+ *   CLIENT_SECRET     Client secret (required for confidential clients)
  *   SCOPES            Space-separated scopes (overridden by CLI args)
  */
 
@@ -23,6 +24,7 @@ const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
 const BASE_URL = process.env.AUTH_GATEWAY_URL ?? "http://localhost:3000";
 const args = process.argv.slice(2);
 const CLIENT_ID = args[0] ?? process.env.CLIENT_ID;
+const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const SCOPES = args.length > 1 ? args.slice(1) : (process.env.SCOPES?.split(" ").filter(Boolean) ?? []);
 
 if (!CLIENT_ID) {
@@ -55,14 +57,23 @@ async function main() {
   console.log(bold("\n--- Device Authorization Flow ---\n"));
   console.log(dim(`  Gateway : ${BASE_URL}`));
   console.log(dim(`  Client  : ${CLIENT_ID}`));
+  if (CLIENT_SECRET) console.log(dim(`  Auth    : Basic (confidential)`));
   if (SCOPES.length) console.log(dim(`  Scopes  : ${SCOPES.join(" ")}`));
   console.log();
 
+  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
+  if (CLIENT_SECRET) {
+    authHeaders["Authorization"] = `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64")}`;
+  }
+
   // Step 1 — Request device code
+  const codeBody: Record<string, unknown> = { scopes: SCOPES };
+  if (!CLIENT_SECRET) codeBody.client_id = CLIENT_ID;
+
   const codeRes = await fetch(`${BASE_URL}/v1/device/code`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ client_id: CLIENT_ID, scopes: SCOPES }),
+    headers: authHeaders,
+    body: JSON.stringify(codeBody),
   });
 
   if (!codeRes.ok) {
@@ -91,21 +102,23 @@ async function main() {
   while (true) {
     await new Promise((r) => setTimeout(r, pollInterval));
 
+    const tokenBody: Record<string, string> = {
+      device_code,
+      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+    };
+    if (!CLIENT_SECRET) tokenBody.client_id = CLIENT_ID;
+
     const tokenRes = await fetch(`${BASE_URL}/v1/oauth/token`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        device_code,
-        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-        client_id: CLIENT_ID,
-      }),
+      headers: authHeaders,
+      body: JSON.stringify(tokenBody),
     });
 
     const body = (await tokenRes.json()) as DevicePollResponse;
     const oauthError = body.error;
 
     if (
-      (tokenRes.status === 400 || tokenRes.status === 428)
+      tokenRes.status === 400
       && (oauthError === "authorization_pending" || oauthError === "slow_down")
     ) {
       process.stdout.write(".");

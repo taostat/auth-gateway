@@ -1,9 +1,10 @@
-import { AuthChallenge } from '../types';
+import { AuthChallenge, ChallengeBindings } from '../types';
 import { ChallengeExpiredError } from '../util/errors';
 import { config } from '../config';
 import {
   createChallenge as dbCreateChallenge,
   consumeChallenge as dbConsumeChallenge,
+  DbChallenge,
   cleanupExpiredChallenges as dbCleanup,
   clearChallenges as dbClear,
 } from '../db/challenges';
@@ -11,27 +12,33 @@ import {
 let cleanupInterval: NodeJS.Timeout | null = null;
 let cleanupPromise: Promise<void> | null = null;
 
-export async function createChallenge(address: string | null, scopes: string[] = []): Promise<AuthChallenge> {
-  const dbChallenge = await dbCreateChallenge(address, scopes);
+function toAuthChallenge(db: DbChallenge): AuthChallenge {
+  const createdMs = db.createdAt.getTime();
   return {
-    nonce: dbChallenge.nonce,
-    address: dbChallenge.address,
-    scopes: dbChallenge.scopes,
-    createdAt: dbChallenge.createdAt.getTime(),
-    expiresAt: dbChallenge.createdAt.getTime() + config.challengeTtlSeconds * 1000, // filled by caller context
+    nonce: db.nonce,
+    address: db.address,
+    scopes: db.scopes,
+    createdAt: createdMs,
+    expiresAt: createdMs + config.challengeTtlSeconds * 1000,
+    flowType: db.flowType,
+    clientId: db.clientId,
+    redirectUri: db.redirectUri,
+    userCode: db.userCode,
+    sessionId: db.sessionId,
   };
+}
+
+export async function createChallenge(
+  address: string | null,
+  scopes: string[] = [],
+  opts?: ChallengeBindings,
+): Promise<AuthChallenge> {
+  return toAuthChallenge(await dbCreateChallenge(address, scopes, opts));
 }
 
 export async function consumeChallenge(nonce: string): Promise<AuthChallenge> {
   try {
-    const dbChallenge = await dbConsumeChallenge(nonce);
-    return {
-      nonce: dbChallenge.nonce,
-      address: dbChallenge.address,
-      scopes: dbChallenge.scopes,
-      createdAt: dbChallenge.createdAt.getTime(),
-      expiresAt: dbChallenge.createdAt.getTime() + config.challengeTtlSeconds * 1000,
-    };
+    return toAuthChallenge(await dbConsumeChallenge(nonce));
   } catch {
     throw new ChallengeExpiredError();
   }
