@@ -92,7 +92,7 @@ describe('XSS prevention in HTML pages', () => {
     // and doesn't reflect the client_id unsafely.
     const res = await app.inject({
       method: 'GET',
-      url: '/v1/oauth/authorize?client_id=<script>alert(1)</script>&redirect_uri=http://test',
+      url: '/v1/oauth/authorize?client_id=<script>alert(1)</script>&redirect_uri=http://test&response_type=code',
     });
     expect(res.statusCode).toBe(400);
     // The error page uses static messages — confirm no script tags in output

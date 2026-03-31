@@ -38,12 +38,15 @@ jest.mock('../../subtensor/queries', () => {
 });
 
 import { FastifyInstance } from 'fastify';
-import { buildTestApp } from '../helpers/app';
+import { browserPost, buildTestApp } from '../helpers/app';
 import { getAliceAddress, signWithAlice } from '../helpers/sign';
 import { generateS256Challenge } from '../../crypto/pkce';
 import { clearTestChallenges, clearTestConsumedCodes } from '../helpers/mockDb';
-import { verifyIdToken, computeAtHash } from '../../crypto/jwt';
+import { verifyIdToken, verifyToken, computeAtHash } from '../../crypto/jwt';
+import { getPrivateKey, getKid } from '../../crypto/keys';
+import { config } from '../../config';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 
 let app: FastifyInstance;
 
@@ -64,6 +67,51 @@ beforeEach(() => {
   addTestClient(createTestClient());
   addTestClient(createPublicTestClient());
 });
+
+function postOAuthCallback(payload: { session_id: string; nonce: string; address: string; signature: string }) {
+  return browserPost(app, '/v1/oauth/callback', payload);
+}
+
+async function createSession(opts?: {
+  clientId?: string;
+  redirectUri?: string;
+  scopes?: string[];
+  codeChallenge?: string;
+  oidcNonce?: string;
+}): Promise<string> {
+  const { createAuthorizeSession } = require('../../db/authorizeSessions');
+  return createAuthorizeSession({
+    clientId: opts?.clientId ?? TEST_CLIENT_ID,
+    redirectUri: opts?.redirectUri ?? 'http://localhost:3001/callback',
+    scopes: opts?.scopes ?? [],
+    codeChallenge: opts?.codeChallenge,
+    oidcNonce: opts?.oidcNonce,
+  });
+}
+
+async function getOAuthChallenge(opts: {
+  clientId?: string;
+  redirectUri?: string;
+  address?: string;
+  scopes?: string[];
+  codeChallenge?: string;
+  oidcNonce?: string;
+}): Promise<{ sessionId: string; nonce: string }> {
+  const sessionId = await createSession({
+    clientId: opts.clientId,
+    redirectUri: opts.redirectUri,
+    scopes: opts.scopes,
+    codeChallenge: opts.codeChallenge,
+    oidcNonce: opts.oidcNonce,
+  });
+  const res = await browserPost(app, '/v1/oauth/challenge', {
+    session_id: sessionId,
+    ...(opts.address ? { address: opts.address } : {}),
+  });
+  expect(res.statusCode).toBe(200);
+  const { nonce } = JSON.parse(res.payload);
+  return { sessionId, nonce };
+}
 
 describe('OAuth Routes', () => {
   describe('GET /v1/oauth/authorize', () => {
@@ -89,7 +137,7 @@ describe('OAuth Routes', () => {
     test('returns 400 for unknown client_id', async () => {
       const res = await app.inject({
         method: 'GET',
-        url: '/v1/oauth/authorize?client_id=unknown-client&redirect_uri=http://localhost/callback',
+        url: '/v1/oauth/authorize?client_id=unknown-client&redirect_uri=http://localhost/callback&response_type=code',
       });
       expect(res.statusCode).toBe(400);
       expect(res.payload).toContain('not registered');
@@ -98,7 +146,7 @@ describe('OAuth Routes', () => {
     test('returns 400 for unregistered redirect_uri', async () => {
       const res = await app.inject({
         method: 'GET',
-        url: `/v1/oauth/authorize?client_id=${TEST_CLIENT_ID}&redirect_uri=http://evil.com/callback`,
+        url: `/v1/oauth/authorize?client_id=${TEST_CLIENT_ID}&redirect_uri=http://evil.com/callback&response_type=code`,
       });
       expect(res.statusCode).toBe(400);
       expect(res.payload).toContain('not registered');
@@ -125,10 +173,26 @@ describe('OAuth Routes', () => {
   });
 
   describe('POST /v1/oauth/token', () => {
-    test('exchanges auth code for tokens with client auth', async () => {
+    test('requires Origin header for browser-only OAuth challenge route', async () => {
+      const sessionId = await createSession();
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/challenge',
+        payload: { session_id: sessionId },
+      });
+
+      expect(res.statusCode).toBe(403);
+      expect(JSON.parse(res.payload).message).toBe('Origin header required');
+    });
+
+    test('rejects direct auth challenges at OAuth callback', async () => {
       const address = await getAliceAddress();
 
-      // Create challenge and get auth code via callback
+      // Create a session for the callback
+      const sessionId = await createSession();
+
+      // But use a nonce from the auth challenge flow (not OAuth)
       const challengeRes = await app.inject({
         method: 'POST',
         url: '/v1/auth/challenge',
@@ -137,17 +201,20 @@ describe('OAuth Routes', () => {
       const { nonce } = JSON.parse(challengeRes.payload);
       const signature = await signWithAlice(nonce);
 
-      const callbackRes = await app.inject({
-        method: 'POST',
-        url: '/v1/oauth/callback',
-        payload: {
-          nonce,
-          address,
-          signature,
-          client_id: TEST_CLIENT_ID,
-          redirect_uri: 'http://localhost:3001/callback',
-        },
-      });
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
+
+      expect(callbackRes.statusCode).toBe(400);
+      expect(JSON.parse(callbackRes.payload).message).toContain('different authentication flow');
+    });
+
+    test('exchanges auth code for tokens with client auth', async () => {
+      const address = await getAliceAddress();
+
+      // Create challenge and get auth code via callback
+      const { sessionId, nonce } = await getOAuthChallenge({ address, clientId: TEST_CLIENT_ID });
+      const signature = await signWithAlice(nonce);
+
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
 
@@ -202,30 +269,21 @@ describe('OAuth Routes', () => {
       const codeVerifier = crypto.randomBytes(32).toString('base64url');
       const codeChallenge = generateS256Challenge(codeVerifier);
 
-      // Challenge
-      const challengeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/challenge',
-        payload: { address },
+      // Challenge (code_challenge stored in session)
+      const { sessionId, nonce } = await getOAuthChallenge({
+        address,
+        clientId: 'public-test-client',
+        codeChallenge,
       });
-      const { nonce } = JSON.parse(challengeRes.payload);
       const signature = await signWithAlice(nonce);
 
-      // Callback with PKCE challenge
-      const callbackRes = await app.inject({
-        method: 'POST',
-        url: '/v1/oauth/callback',
-        payload: {
-          nonce,
-          address,
-          signature,
-          client_id: 'public-test-client',
-          redirect_uri: 'http://localhost:3001/callback',
-          code_challenge: codeChallenge,
-        },
-      });
+      // Callback
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
+      const claims = verifyToken(code);
+      expect(claims.code_challenge).toBe(codeChallenge);
+      expect(claims.code_challenge_method).toBe('S256');
 
       // Token exchange with code_verifier
       const tokenRes = await app.inject({
@@ -251,26 +309,14 @@ describe('OAuth Routes', () => {
       const codeVerifier = crypto.randomBytes(32).toString('base64url');
       const codeChallenge = generateS256Challenge(codeVerifier);
 
-      const challengeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/challenge',
-        payload: { address },
+      const { sessionId, nonce } = await getOAuthChallenge({
+        address,
+        clientId: 'public-test-client',
+        codeChallenge,
       });
-      const { nonce } = JSON.parse(challengeRes.payload);
       const signature = await signWithAlice(nonce);
 
-      const callbackRes = await app.inject({
-        method: 'POST',
-        url: '/v1/oauth/callback',
-        payload: {
-          nonce,
-          address,
-          signature,
-          client_id: 'public-test-client',
-          redirect_uri: 'http://localhost:3001/callback',
-          code_challenge: codeChallenge,
-        },
-      });
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
       const { code } = JSON.parse(callbackRes.payload);
 
       // Wrong verifier
@@ -287,6 +333,47 @@ describe('OAuth Routes', () => {
       });
       expect(tokenRes.statusCode).toBe(401);
     });
+
+    test('accepts legacy auth codes that have code_challenge without code_challenge_method', async () => {
+      const codeVerifier = crypto.randomBytes(32).toString('base64url');
+      const codeChallenge = generateS256Challenge(codeVerifier);
+      const legacyCode = jwt.sign(
+        {
+          sub: ALICE,
+          scope: '',
+          type: 'auth_code',
+          jti: crypto.randomUUID(),
+          client_id: TEST_CLIENT_ID,
+          redirect_uri: 'http://localhost:3001/callback',
+          code_challenge: codeChallenge,
+          hotkey: ALICE,
+          coldkey: ALICE,
+          evm_address: null,
+        },
+        getPrivateKey(),
+        {
+          algorithm: 'RS256',
+          issuer: config.jwtIssuer,
+          audience: config.jwtAudience,
+          expiresIn: config.jwtAuthCodeExpiry,
+          keyid: getKid(),
+        },
+      );
+
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code: legacyCode,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+          code_verifier: codeVerifier,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      expect(tokenRes.statusCode).toBe(200);
+    });
   });
 
   describe('POST /v1/oauth/refresh', () => {
@@ -294,25 +381,10 @@ describe('OAuth Routes', () => {
       const address = await getAliceAddress();
 
       // Get initial tokens
-      const challengeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/challenge',
-        payload: { address },
-      });
-      const { nonce } = JSON.parse(challengeRes.payload);
+      const { sessionId, nonce } = await getOAuthChallenge({ address });
       const signature = await signWithAlice(nonce);
 
-      const callbackRes = await app.inject({
-        method: 'POST',
-        url: '/v1/oauth/callback',
-        payload: {
-          nonce,
-          address,
-          signature,
-          client_id: TEST_CLIENT_ID,
-          redirect_uri: 'http://localhost:3001/callback',
-        },
-      });
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
       const { code } = JSON.parse(callbackRes.payload);
 
       const tokenRes = await app.inject({
@@ -388,25 +460,14 @@ describe('OAuth Routes', () => {
       );
 
       // Full flow: challenge -> sign -> callback -> token exchange -> refresh
-      const challengeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/challenge',
-        payload: { address, scopes: ['subnet:1:miner'] },
+      const { sessionId, nonce } = await getOAuthChallenge({
+        address,
+        clientId: 'scoped-client',
+        scopes: ['subnet:1:miner'],
       });
-      const { nonce } = JSON.parse(challengeRes.payload);
       const signature = await signWithAlice(nonce);
 
-      const callbackRes = await app.inject({
-        method: 'POST',
-        url: '/v1/oauth/callback',
-        payload: {
-          nonce,
-          address,
-          signature,
-          client_id: 'scoped-client',
-          redirect_uri: 'http://localhost:3001/callback',
-        },
-      });
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
 
@@ -455,25 +516,14 @@ describe('OAuth Routes', () => {
       );
 
       // Full flow to get refresh token
-      const challengeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/challenge',
-        payload: { address, scopes: ['subnet:1:miner'] },
+      const { sessionId, nonce } = await getOAuthChallenge({
+        address,
+        clientId: 'scoped-client-2',
+        scopes: ['subnet:1:miner'],
       });
-      const { nonce } = JSON.parse(challengeRes.payload);
       const signature = await signWithAlice(nonce);
 
-      const callbackRes = await app.inject({
-        method: 'POST',
-        url: '/v1/oauth/callback',
-        payload: {
-          nonce,
-          address,
-          signature,
-          client_id: 'scoped-client-2',
-          redirect_uri: 'http://localhost:3001/callback',
-        },
-      });
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
 
@@ -525,25 +575,10 @@ describe('OAuth Routes', () => {
       const address = await getAliceAddress();
 
       // Get tokens via full flow
-      const challengeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/challenge',
-        payload: { address },
-      });
-      const { nonce } = JSON.parse(challengeRes.payload);
+      const { sessionId, nonce } = await getOAuthChallenge({ address });
       const signature = await signWithAlice(nonce);
 
-      const callbackRes = await app.inject({
-        method: 'POST',
-        url: '/v1/oauth/callback',
-        payload: {
-          nonce,
-          address,
-          signature,
-          client_id: TEST_CLIENT_ID,
-          redirect_uri: 'http://localhost:3001/callback',
-        },
-      });
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
       const { code } = JSON.parse(callbackRes.payload);
 
       const tokenRes = await app.inject({
@@ -583,25 +618,10 @@ describe('OAuth Routes', () => {
       const address = await getAliceAddress();
 
       // Create challenge and get auth code
-      const challengeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/challenge',
-        payload: { address },
-      });
-      const { nonce } = JSON.parse(challengeRes.payload);
+      const { sessionId, nonce } = await getOAuthChallenge({ address });
       const signature = await signWithAlice(nonce);
 
-      const callbackRes = await app.inject({
-        method: 'POST',
-        url: '/v1/oauth/callback',
-        payload: {
-          nonce,
-          address,
-          signature,
-          client_id: TEST_CLIENT_ID,
-          redirect_uri: 'http://localhost:3001/callback',
-        },
-      });
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
 
@@ -640,25 +660,10 @@ describe('OAuth Routes', () => {
     test('rejects token exchange when redirect_uri omitted but was in auth code', async () => {
       const address = await getAliceAddress();
 
-      const challengeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/challenge',
-        payload: { address },
-      });
-      const { nonce } = JSON.parse(challengeRes.payload);
+      const { sessionId, nonce } = await getOAuthChallenge({ address, clientId: TEST_CLIENT_ID });
       const signature = await signWithAlice(nonce);
 
-      const callbackRes = await app.inject({
-        method: 'POST',
-        url: '/v1/oauth/callback',
-        payload: {
-          nonce,
-          address,
-          signature,
-          client_id: TEST_CLIENT_ID,
-          redirect_uri: 'http://localhost:3001/callback',
-        },
-      });
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
 
@@ -685,26 +690,14 @@ describe('OAuth Routes', () => {
       const codeVerifier = crypto.randomBytes(32).toString('base64url');
       const codeChallenge = generateS256Challenge(codeVerifier);
 
-      const challengeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/challenge',
-        payload: { address },
+      const { sessionId, nonce } = await getOAuthChallenge({
+        address,
+        clientId: 'public-test-client',
+        codeChallenge,
       });
-      const { nonce } = JSON.parse(challengeRes.payload);
       const signature = await signWithAlice(nonce);
 
-      const callbackRes = await app.inject({
-        method: 'POST',
-        url: '/v1/oauth/callback',
-        payload: {
-          nonce,
-          address,
-          signature,
-          client_id: 'public-test-client',
-          redirect_uri: 'http://localhost:3001/callback',
-          code_challenge: codeChallenge,
-        },
-      });
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
 
@@ -742,25 +735,10 @@ describe('OAuth Routes', () => {
     test('auth code not consumed when redirect_uri mismatches (retry with correct URI succeeds)', async () => {
       const address = await getAliceAddress();
 
-      const challengeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/challenge',
-        payload: { address },
-      });
-      const { nonce } = JSON.parse(challengeRes.payload);
+      const { sessionId, nonce } = await getOAuthChallenge({ address });
       const signature = await signWithAlice(nonce);
 
-      const callbackRes = await app.inject({
-        method: 'POST',
-        url: '/v1/oauth/callback',
-        payload: {
-          nonce,
-          address,
-          signature,
-          client_id: TEST_CLIENT_ID,
-          redirect_uri: 'http://localhost:3001/callback',
-        },
-      });
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
 
@@ -799,25 +777,10 @@ describe('OAuth Routes', () => {
       const address = await getAliceAddress();
 
       // Get tokens via full flow with test-client
-      const challengeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/challenge',
-        payload: { address },
-      });
-      const { nonce } = JSON.parse(challengeRes.payload);
+      const { sessionId, nonce } = await getOAuthChallenge({ address });
       const signature = await signWithAlice(nonce);
 
-      const callbackRes = await app.inject({
-        method: 'POST',
-        url: '/v1/oauth/callback',
-        payload: {
-          nonce,
-          address,
-          signature,
-          client_id: TEST_CLIENT_ID,
-          redirect_uri: 'http://localhost:3001/callback',
-        },
-      });
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
       const { code } = JSON.parse(callbackRes.payload);
 
       const tokenRes = await app.inject({
@@ -863,25 +826,10 @@ describe('OAuth Routes', () => {
       const address = await getAliceAddress();
 
       // Get auth code bound to test-client
-      const challengeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/challenge',
-        payload: { address },
-      });
-      const { nonce } = JSON.parse(challengeRes.payload);
+      const { sessionId, nonce } = await getOAuthChallenge({ address });
       const signature = await signWithAlice(nonce);
 
-      const callbackRes = await app.inject({
-        method: 'POST',
-        url: '/v1/oauth/callback',
-        payload: {
-          nonce,
-          address,
-          signature,
-          client_id: TEST_CLIENT_ID,
-          redirect_uri: 'http://localhost:3001/callback',
-        },
-      });
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
 
@@ -916,27 +864,12 @@ describe('OAuth Routes', () => {
       const codeVerifier = crypto.randomBytes(32).toString('base64url');
       const codeChallenge = generateS256Challenge(codeVerifier);
 
-      const challengeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/challenge',
-        payload: { address },
-      });
-      const { nonce } = JSON.parse(challengeRes.payload);
+      // code_challenge stored in session
+      const { sessionId, nonce } = await getOAuthChallenge({ address, codeChallenge });
       const signature = await signWithAlice(nonce);
 
       // Issue auth code WITH code_challenge (using confidential client)
-      const callbackRes = await app.inject({
-        method: 'POST',
-        url: '/v1/oauth/callback',
-        payload: {
-          nonce,
-          address,
-          signature,
-          client_id: TEST_CLIENT_ID,
-          redirect_uri: 'http://localhost:3001/callback',
-          code_challenge: codeChallenge,
-        },
-      });
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
 
@@ -964,25 +897,10 @@ describe('OAuth Routes', () => {
       const address = await getAliceAddress();
 
       // Get initial tokens
-      const challengeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/challenge',
-        payload: { address },
-      });
-      const { nonce } = JSON.parse(challengeRes.payload);
+      const { sessionId, nonce } = await getOAuthChallenge({ address });
       const signature = await signWithAlice(nonce);
 
-      const callbackRes = await app.inject({
-        method: 'POST',
-        url: '/v1/oauth/callback',
-        payload: {
-          nonce,
-          address,
-          signature,
-          client_id: TEST_CLIENT_ID,
-          redirect_uri: 'http://localhost:3001/callback',
-        },
-      });
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
       const { code } = JSON.parse(callbackRes.payload);
 
       const tokenRes = await app.inject({
@@ -1036,25 +954,10 @@ describe('OAuth Routes', () => {
       const address = await getAliceAddress();
 
       // Get initial tokens via full OAuth flow
-      const challengeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/challenge',
-        payload: { address },
-      });
-      const { nonce } = JSON.parse(challengeRes.payload);
+      const { sessionId, nonce } = await getOAuthChallenge({ address });
       const signature = await signWithAlice(nonce);
 
-      const callbackRes = await app.inject({
-        method: 'POST',
-        url: '/v1/oauth/callback',
-        payload: {
-          nonce,
-          address,
-          signature,
-          client_id: TEST_CLIENT_ID,
-          redirect_uri: 'http://localhost:3001/callback',
-        },
-      });
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
       const { code } = JSON.parse(callbackRes.payload);
 
       const tokenRes = await app.inject({
@@ -1084,7 +987,7 @@ describe('OAuth Routes', () => {
         app.inject({ method: 'POST', url: '/v1/oauth/refresh', payload: refreshPayload }),
       ]);
 
-      const statuses = [res1.statusCode, res2.statusCode].toSorted();
+      const statuses = [res1.statusCode, res2.statusCode].sort((a, b) => a - b);
       // Exactly one should succeed (200) and one should fail (401)
       expect(statuses).toEqual([200, 401]);
 
@@ -1105,30 +1008,18 @@ describe('OAuth Routes', () => {
 
   describe('ID token issuance', () => {
     async function getTokensViaAuthCode(
-      opts: { scopes?: string[]; extraCallbackFields?: Record<string, string> } = {},
+      opts: { scopes?: string[]; oidcNonce?: string } = {},
     ): Promise<Record<string, unknown>> {
       const scopes = opts.scopes ?? ['openid'];
       const address = await getAliceAddress();
-      const challengeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/challenge',
-        payload: { address, scopes },
+      const { sessionId, nonce } = await getOAuthChallenge({
+        address,
+        scopes,
+        oidcNonce: opts.oidcNonce,
       });
-      const { nonce } = JSON.parse(challengeRes.payload);
       const signature = await signWithAlice(nonce);
 
-      const callbackRes = await app.inject({
-        method: 'POST',
-        url: '/v1/oauth/callback',
-        payload: {
-          nonce,
-          address,
-          signature,
-          client_id: TEST_CLIENT_ID,
-          redirect_uri: 'http://localhost:3001/callback',
-          ...opts.extraCallbackFields,
-        },
-      });
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
       expect(callbackRes.statusCode).toBe(200);
       const { code } = JSON.parse(callbackRes.payload);
 
@@ -1177,7 +1068,7 @@ describe('OAuth Routes', () => {
 
     test('nonce is included in id_token when provided', async () => {
       const oidcNonce = 'test-nonce-12345';
-      const body = await getTokensViaAuthCode({ extraCallbackFields: { oidc_nonce: oidcNonce } });
+      const body = await getTokensViaAuthCode({ oidcNonce });
       const claims = verifyIdToken(body.id_token as string, TEST_CLIENT_ID);
       expect(claims.nonce).toBe(oidcNonce);
     });

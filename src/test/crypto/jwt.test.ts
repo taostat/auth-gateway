@@ -143,6 +143,14 @@ describe('JWT', () => {
     expect(decoded.nonce).toBe('oidc-nonce-123');
   });
 
+  test('createAuthCode binds S256 code_challenge_method when code_challenge is provided', () => {
+    const challenge = 'a'.repeat(43);
+    const token = createAuthCode(address, [], { code_challenge: challenge });
+    const decoded = verifyToken(token);
+    expect(decoded.code_challenge).toBe(challenge);
+    expect(decoded.code_challenge_method).toBe('S256');
+  });
+
   test('access and refresh tokens have different expiry', () => {
     const access = createAccessToken(address, []);
     const refresh = createRefreshToken(address, []);

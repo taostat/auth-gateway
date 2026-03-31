@@ -81,6 +81,7 @@ export function createAuthCode(
     client_id?: string | undefined;
     redirect_uri?: string | undefined;
     code_challenge?: string | undefined;
+    code_challenge_method?: 'S256' | undefined;
     nonce?: string | undefined;
     auth_time?: number | undefined;
     hotkey?: string | null | undefined;
@@ -88,6 +89,8 @@ export function createAuthCode(
     evm_address?: string | null | undefined;
   },
 ): string {
+  const codeChallengeMethod = opts?.code_challenge ? opts.code_challenge_method ?? 'S256' : undefined;
+
   return jwt.sign(
     {
       sub: address,
@@ -97,6 +100,7 @@ export function createAuthCode(
       ...(opts?.client_id && { client_id: opts.client_id }),
       ...(opts?.redirect_uri && { redirect_uri: opts.redirect_uri }),
       ...(opts?.code_challenge && { code_challenge: opts.code_challenge }),
+      ...(codeChallengeMethod && { code_challenge_method: codeChallengeMethod }),
       ...(opts?.nonce && { nonce: opts.nonce }),
       ...(opts?.auth_time != null && { auth_time: opts.auth_time }),
       hotkey: opts?.hotkey ?? null,

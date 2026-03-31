@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-dotenv.config();
+dotenv.config({ quiet: process.env['NODE_ENV'] === 'test' });
 
 function optionalEnv(name: string, defaultValue: string): string {
   const value = process.env[name];
@@ -16,6 +16,26 @@ function intEnv(name: string, defaultValue: number): number {
 
 function normalizeUrl(value: string): string {
   return value.replace(/\/+$/, '');
+}
+
+function trustProxyEnv(
+  name: string,
+  defaultValue: boolean | string | string[] | number,
+): boolean | string | string[] | number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return defaultValue;
+
+  const trimmed = raw.trim();
+  if (trimmed === 'true') return true;
+  if (trimmed === 'false') return false;
+  if (/^\d+$/.test(trimmed)) return parseInt(trimmed, 10);
+  if (trimmed.includes(',')) {
+    return trimmed
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  return trimmed;
 }
 
 const network = optionalEnv('NETWORK', 'mainnet');
@@ -35,6 +55,7 @@ export const config = {
   port: intEnv('PORT', 3000),
   host: optionalEnv('HOST', '0.0.0.0'),
   nodeEnv: optionalEnv('NODE_ENV', 'development'),
+  trustProxy: trustProxyEnv('TRUST_PROXY', false),
 
   // Network
   network: network as 'mainnet' | 'testnet',
@@ -71,7 +92,7 @@ export const config = {
   verificationUri: optionalEnv('VERIFICATION_URI', `${publicUrl}/v1/device/verify`),
 
   // Rate Limits
-  rateLimitGlobal: intEnv('RATE_LIMIT_GLOBAL', 10),
+  rateLimitGlobal: intEnv('RATE_LIMIT_GLOBAL', 30),
   rateLimitChallenge: intEnv('RATE_LIMIT_CHALLENGE', 5),
 
   // Database

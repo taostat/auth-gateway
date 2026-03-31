@@ -3,27 +3,52 @@ import { OAuthClient, RefreshTokenRecord } from '../../types';
 // In-memory mock stores
 const clients = new Map<string, OAuthClient>();
 const refreshTokens = new Map<string, RefreshTokenRecord>();
+const lockedDeviceCodes = new Set<string>();
 const challenges = new Map<
   string,
-  { nonce: string; address: string | null; scopes: string[]; createdAt: Date; consumed: boolean }
->();
-const deviceCodes = new Map<
-  string,
   {
-    deviceCode: string;
-    userCode: string;
-    clientId: string;
-    scopes: string[];
-    approved: boolean;
-    denied: boolean;
+    nonce: string;
     address: string | null;
-    approvedAt: Date | null;
+    scopes: string[];
     createdAt: Date;
-    expiresAt: Date;
-    lastPolledAt: Date | null;
+    consumed: boolean;
+    flowType: 'auth' | 'oauth' | 'device' | null;
+    clientId: string | null;
+    redirectUri: string | null;
+    userCode: string | null;
+    sessionId: string | null;
   }
 >();
+type MockDeviceCode = {
+  deviceCode: string;
+  userCode: string;
+  clientId: string;
+  scopes: string[];
+  approved: boolean;
+  denied: boolean;
+  address: string | null;
+  approvedAt: Date | null;
+  createdAt: Date;
+  expiresAt: Date;
+  lastPolledAt: Date | null;
+};
+
+const deviceCodes = new Map<string, MockDeviceCode>();
 const consumedAuthCodes = new Set<string>();
+type MockRedemptionClient = {
+  deviceCode: string;
+  pendingRefreshTokens: RefreshTokenRecord[];
+  stagedDeviceCode: MockDeviceCode | null;
+  stagedDelete: boolean;
+  released: boolean;
+};
+
+function cloneDeviceCodeEntry(entry: MockDeviceCode): MockDeviceCode {
+  return {
+    ...entry,
+    scopes: [...entry.scopes],
+  };
+}
 
 // Default test client
 export const TEST_CLIENT_ID = 'test-client-id';
@@ -88,12 +113,17 @@ export function getTestRefreshToken(jti: string): RefreshTokenRecord | undefined
   return refreshTokens.get(jti);
 }
 
+export function listTestRefreshTokens(): RefreshTokenRecord[] {
+  return Array.from(refreshTokens.values());
+}
+
 export function clearTestChallenges(): void {
   challenges.clear();
 }
 
 export function clearTestDeviceCodes(): void {
   deviceCodes.clear();
+  lockedDeviceCodes.clear();
 }
 
 export function clearTestConsumedCodes(): void {
@@ -160,8 +190,8 @@ export function setupMockDb(): void {
       REVOKED: 'revoked',
       EXPIRED: 'expired',
     },
-    storeRefreshToken: jest.fn().mockImplementation(async (opts: any) => {
-      refreshTokens.set(opts.jti, {
+    storeRefreshToken: jest.fn().mockImplementation(async (opts: any, tx?: any) => {
+      const token = {
         jti: opts.jti,
         client_id: opts.client_id,
         address: opts.address,
@@ -170,7 +200,14 @@ export function setupMockDb(): void {
         revoked: false,
         expires_at: opts.expires_at,
         created_at: new Date(),
-      });
+      };
+      // Device code redemption passes a MockRedemptionClient with pendingRefreshTokens
+      if (tx && tx.pendingRefreshTokens) {
+        tx.pendingRefreshTokens.push(token);
+        return;
+      }
+      // Auth code exchange passes a PoolClient — store directly
+      refreshTokens.set(opts.jti, token);
     }),
     getRefreshToken: jest.fn().mockImplementation(async (jti: string) => {
       return refreshTokens.get(jti) || null;
@@ -215,13 +252,46 @@ export function setupMockDb(): void {
   jest.mock('../../db/challenges', () => {
     const { randomUUID } = require('node:crypto');
     return {
-      createChallenge: jest.fn().mockImplementation(async (address: string | null, scopes: string[] = []) => {
-        const scopesCsv = scopes.length > 0 ? scopes.join(',') : 'none';
-        const nonce = `taostats-auth:${scopesCsv}:${randomUUID()}`;
-        const now = new Date();
-        challenges.set(nonce, { nonce, address, scopes, createdAt: now, consumed: false });
-        return { nonce, address, scopes, createdAt: now };
-      }),
+      createChallenge: jest.fn().mockImplementation(
+        async (
+          address: string | null,
+          scopes: string[] = [],
+          opts?: {
+            flowType?: 'auth' | 'oauth' | 'device';
+            clientId?: string;
+            redirectUri?: string;
+            userCode?: string;
+            sessionId?: string;
+          },
+        ) => {
+          const scopesCsv = scopes.length > 0 ? scopes.join(',') : 'none';
+          const nonce = `taostats-auth:${scopesCsv}:${randomUUID()}`;
+          const now = new Date();
+          challenges.set(nonce, {
+            nonce,
+            address,
+            scopes,
+            createdAt: now,
+            consumed: false,
+            flowType: opts?.flowType ?? null,
+            clientId: opts?.clientId ?? null,
+            redirectUri: opts?.redirectUri ?? null,
+            userCode: opts?.userCode ?? null,
+            sessionId: opts?.sessionId ?? null,
+          });
+          return {
+            nonce,
+            address,
+            scopes,
+            createdAt: now,
+            flowType: opts?.flowType ?? null,
+            clientId: opts?.clientId ?? null,
+            redirectUri: opts?.redirectUri ?? null,
+            userCode: opts?.userCode ?? null,
+            sessionId: opts?.sessionId ?? null,
+          };
+        },
+      ),
       consumeChallenge: jest.fn().mockImplementation(async (nonce: string) => {
         const challenge = challenges.get(nonce);
         if (!challenge || challenge.consumed) throw new Error('challenge_not_found');
@@ -231,6 +301,11 @@ export function setupMockDb(): void {
           address: challenge.address,
           scopes: challenge.scopes,
           createdAt: challenge.createdAt,
+          flowType: challenge.flowType,
+          clientId: challenge.clientId,
+          redirectUri: challenge.redirectUri,
+          userCode: challenge.userCode,
+          sessionId: challenge.sessionId,
         };
       }),
       cleanupExpiredChallenges: jest.fn().mockResolvedValue(undefined),
@@ -296,18 +371,68 @@ export function setupMockDb(): void {
       const entry = deviceCodes.get(deviceCode);
       if (entry) entry.lastPolledAt = new Date();
     }),
+    beginDeviceCodeRedemption: jest.fn().mockImplementation(async (deviceCode: string) => {
+      const entry = deviceCodes.get(deviceCode);
+      if (!entry || lockedDeviceCodes.has(deviceCode)) {
+        return null;
+      }
+      lockedDeviceCodes.add(deviceCode);
+      return {
+        client: {
+          deviceCode,
+          pendingRefreshTokens: [],
+          stagedDeviceCode: cloneDeviceCodeEntry(entry),
+          stagedDelete: false,
+          released: false,
+        },
+        entry: cloneDeviceCodeEntry(entry),
+      };
+    }),
+    updateLockedDeviceCodeLastPolledAt: jest
+      .fn()
+      .mockImplementation(async (client: MockRedemptionClient, deviceCode: string) => {
+        if (client.deviceCode === deviceCode && client.stagedDeviceCode && !client.stagedDelete) {
+          client.stagedDeviceCode.lastPolledAt = new Date();
+        }
+      }),
+    deleteLockedDeviceCode: jest.fn().mockImplementation(async (client: MockRedemptionClient, deviceCode: string) => {
+      if (client.deviceCode === deviceCode) {
+        client.stagedDelete = true;
+      }
+    }),
+    commitDeviceCodeRedemption: jest.fn().mockImplementation(async (client: MockRedemptionClient) => {
+      for (const token of client.pendingRefreshTokens) {
+        refreshTokens.set(token.jti, token);
+      }
+      if (client.stagedDelete) {
+        deviceCodes.delete(client.deviceCode);
+      } else if (client.stagedDeviceCode) {
+        deviceCodes.set(client.deviceCode, cloneDeviceCodeEntry(client.stagedDeviceCode));
+      }
+      lockedDeviceCodes.delete(client.deviceCode);
+      client.released = true;
+    }),
+    rollbackDeviceCodeRedemption: jest.fn().mockImplementation(async (client: MockRedemptionClient) => {
+      client.pendingRefreshTokens.length = 0;
+      client.stagedDeviceCode = null;
+      client.stagedDelete = false;
+      lockedDeviceCodes.delete(client.deviceCode);
+      client.released = true;
+    }),
     deleteDeviceCode: jest.fn().mockImplementation(async (deviceCode: string) => {
       deviceCodes.delete(deviceCode);
+      lockedDeviceCodes.delete(deviceCode);
     }),
     cleanupExpiredDeviceCodes: jest.fn().mockResolvedValue(undefined),
     clearDeviceCodes: jest.fn().mockImplementation(async () => {
       deviceCodes.clear();
+      lockedDeviceCodes.clear();
     }),
   }));
 
   // Mock db/consumedAuthCodes
   jest.mock('../../db/consumedAuthCodes', () => ({
-    markAuthCodeConsumed: jest.fn().mockImplementation(async (jti: string) => {
+    markAuthCodeConsumed: jest.fn().mockImplementation(async (jti: string, _db?: unknown) => {
       if (consumedAuthCodes.has(jti)) return false;
       consumedAuthCodes.add(jti);
       return true;
@@ -321,14 +446,73 @@ export function setupMockDb(): void {
     }),
   }));
 
-  // Mock db/pool
+  // Mock db/pool — supports pool.connect() for transaction usage
   jest.mock('../../db/pool', () => ({
-    getPool: jest.fn().mockReturnValue({}),
+    getPool: jest.fn().mockReturnValue({
+      query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
+      connect: jest.fn().mockImplementation(async () => ({
+        query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
+        release: jest.fn(),
+      })),
+    }),
     disconnectDb: jest.fn().mockResolvedValue(undefined),
   }));
 
   // Mock db/migrate
+  // Mock db/authorizeSessions
+  const authorizeSessions = new Map<
+    string,
+    {
+      sessionId: string;
+      clientId: string;
+      redirectUri: string;
+      scopes: string[];
+      codeChallenge: string | null;
+      codeChallengeMethod: 'S256' | null;
+      oidcNonce: string | null;
+      state: string | null;
+      consumed: boolean;
+    }
+  >();
+  jest.mock('../../db/authorizeSessions', () => {
+    const { randomUUID } = require('node:crypto');
+    return {
+      createAuthorizeSession: jest.fn().mockImplementation(async (opts: Record<string, unknown>) => {
+        const sessionId = randomUUID();
+        const codeChallenge = (opts['codeChallenge'] as string | null) ?? null;
+        authorizeSessions.set(sessionId, {
+          sessionId,
+          clientId: opts['clientId'] as string,
+          redirectUri: opts['redirectUri'] as string,
+          scopes: (opts['scopes'] as string[]) || [],
+          codeChallenge,
+          codeChallengeMethod: codeChallenge ? ((opts['codeChallengeMethod'] as 'S256' | null) ?? 'S256') : null,
+          oidcNonce: (opts['oidcNonce'] as string | null) ?? null,
+          state: (opts['state'] as string | null) ?? null,
+          consumed: false,
+        });
+        return sessionId;
+      }),
+      getAuthorizeSession: jest.fn().mockImplementation(async (sessionId: string) => {
+        const session = authorizeSessions.get(sessionId);
+        if (!session || session.consumed) return null;
+        return session;
+      }),
+      consumeAuthorizeSession: jest.fn().mockImplementation(async (sessionId: string) => {
+        const session = authorizeSessions.get(sessionId);
+        if (!session || session.consumed) return null;
+        session.consumed = true;
+        return session;
+      }),
+      cleanupExpiredAuthorizeSessions: jest.fn().mockResolvedValue(undefined),
+    };
+  });
+
   jest.mock('../../db/migrate', () => ({
     runMigrations: jest.fn().mockResolvedValue(undefined),
   }));
+}
+
+export function clearTestAuthorizeSessions(): void {
+  // Sessions are scoped inside setupMockDb, cleared via jest mock reset
 }

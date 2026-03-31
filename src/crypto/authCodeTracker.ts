@@ -1,3 +1,4 @@
+import type { Pool, PoolClient } from 'pg';
 import {
   markAuthCodeConsumed as dbMark,
   isAuthCodeConsumed as dbIsConsumed,
@@ -8,8 +9,11 @@ import {
 let cleanupInterval: NodeJS.Timeout | null = null;
 let cleanupPromise: Promise<void> | null = null;
 
-export async function markAuthCodeConsumed(jti: string): Promise<boolean> {
-  return dbMark(jti);
+export async function markAuthCodeConsumed(
+  jti: string,
+  db?: Pool | PoolClient,
+): Promise<boolean> {
+  return dbMark(jti, db);
 }
 
 export async function isAuthCodeConsumed(jti: string): Promise<boolean> {

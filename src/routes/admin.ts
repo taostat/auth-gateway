@@ -7,6 +7,7 @@ import { AdminAuthError, AuthError } from '../util/errors';
 import { validateScopeFormat } from '../scopes';
 import { CreateClientBodySchema, UpdateClientBodySchema, ClientIdParamsSchema } from '../schemas/admin';
 import { ErrorResponseSchema } from '../schemas/responses';
+import { normalizeAllowedOrigins } from '../middleware/origin';
 
 function requireAdmin(request: FastifyRequest): void {
   const key = request.headers['x-admin-api-key'] as string | undefined;
@@ -31,6 +32,10 @@ function validateRedirectUri(uri: string): void {
   // Reject fragments
   if (parsed.hash) {
     throw new AuthError('redirect_uri must not contain a fragment', 400, 'Bad Request');
+  }
+
+  if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.username || parsed.password) {
+    throw new AuthError('redirect_uri must be an http(s) URL without embedded credentials', 400, 'Bad Request');
   }
 
   // Require HTTPS in production (except localhost)
@@ -75,7 +80,9 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
       } = request.body;
 
       const CALLBACK_GRANTS = new Set(['authorization_code']);
-      const needsCallback = Array.isArray(grant_types) && grant_types.some((g) => CALLBACK_GRANTS.has(g));
+      const effectiveGrantTypes = grant_types ?? ['authorization_code'];
+      const needsCallback = effectiveGrantTypes.some((g) => CALLBACK_GRANTS.has(g));
+      const normalizedAllowedOrigins = normalizeAllowedOrigins(allowed_origins);
 
       if (needsCallback && (!Array.isArray(redirect_uris) || redirect_uris.length === 0)) {
         throw new AuthError('redirect_uris required unless grant type is device_code only', 400, 'Bad Request');
@@ -115,9 +122,9 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
         client_name,
         client_type,
         redirect_uris,
-        grant_types,
+        grant_types: effectiveGrantTypes,
         allowed_scopes,
-        allowed_origins,
+        allowed_origins: normalizedAllowedOrigins,
         allowed_sign_methods,
         rate_limit,
       });
@@ -202,6 +209,8 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
         }
       }
 
+      const normalizedAllowedOrigins = normalizeAllowedOrigins(body.allowed_origins);
+
       // Fetch existing client for cross-field validation when needed
       const needsExisting =
         body.grant_types || body.redirect_uris || body.allowed_scopes;
@@ -246,7 +255,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
         redirect_uris: body.redirect_uris,
         grant_types: body.grant_types,
         allowed_scopes: body.allowed_scopes,
-        allowed_origins: body.allowed_origins,
+        allowed_origins: normalizedAllowedOrigins,
         rate_limit: body.rate_limit,
       };
 
