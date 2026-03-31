@@ -7,6 +7,7 @@ import {
   clearTestRefreshTokens,
   clearTestChallenges,
   clearTestDeviceCodes,
+  listTestRefreshTokens,
   TEST_CLIENT_ID,
   TEST_CLIENT_SECRET,
 } from '../helpers/mockDb';
@@ -39,7 +40,7 @@ jest.mock('../../subtensor/queries', () => {
 });
 
 import { FastifyInstance } from 'fastify';
-import { buildTestApp } from '../helpers/app';
+import { browserPost, buildTestApp } from '../helpers/app';
 import { getAliceAddress, signWithAlice } from '../helpers/sign';
 import { getDeviceCode, denyDeviceCode } from '../../db/deviceCodes';
 let app: FastifyInstance;
@@ -62,13 +63,21 @@ beforeEach(() => {
 });
 
 describe('Device Code Routes', () => {
+  async function requestConfidentialDeviceCode(payload?: Record<string, unknown>) {
+    return app.inject({
+      method: 'POST',
+      url: '/v1/device/code',
+      payload: {
+        client_id: TEST_CLIENT_ID,
+        client_secret: TEST_CLIENT_SECRET,
+        ...payload,
+      },
+    });
+  }
+
   describe('POST /v1/device/code', () => {
     test('returns device code and user code with valid client_id', async () => {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/v1/device/code',
-        payload: { client_id: TEST_CLIENT_ID },
-      });
+      const res = await requestConfidentialDeviceCode();
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.payload);
       expect(body.device_code).toBeDefined();
@@ -78,20 +87,29 @@ describe('Device Code Routes', () => {
       expect(body.interval).toBeGreaterThan(0);
     });
 
-    test('returns 400 without client_id', async () => {
+    test('returns 401 without client_id', async () => {
       const res = await app.inject({
         method: 'POST',
         url: '/v1/device/code',
         payload: {},
       });
-      expect(res.statusCode).toBe(400);
+      expect(res.statusCode).toBe(401);
+    });
+
+    test('returns 401 for confidential client without client_secret', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/device/code',
+        payload: { client_id: TEST_CLIENT_ID },
+      });
+      expect(res.statusCode).toBe(401);
     });
 
     test('returns 401 for unknown client_id', async () => {
       const res = await app.inject({
         method: 'POST',
         url: '/v1/device/code',
-        payload: { client_id: 'nonexistent' },
+        payload: { client_id: 'nonexistent', client_secret: TEST_CLIENT_SECRET },
       });
       expect(res.statusCode).toBe(401);
     });
@@ -99,11 +117,7 @@ describe('Device Code Routes', () => {
 
   describe('POST /v1/oauth/token (device_code)', () => {
     test('returns authorization_pending before approval', async () => {
-      const codeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/code',
-        payload: { client_id: TEST_CLIENT_ID },
-      });
+      const codeRes = await requestConfidentialDeviceCode();
       const { device_code } = JSON.parse(codeRes.payload);
 
       const tokenRes = await app.inject({
@@ -136,11 +150,7 @@ describe('Device Code Routes', () => {
     });
 
     test('returns expired_token when device code has expired', async () => {
-      const codeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/code',
-        payload: { client_id: TEST_CLIENT_ID },
-      });
+      const codeRes = await requestConfidentialDeviceCode();
       const { device_code } = JSON.parse(codeRes.payload);
 
       // Mutate the stored entry to expire it
@@ -163,11 +173,7 @@ describe('Device Code Routes', () => {
     });
 
     test('returns access_denied when device code is denied', async () => {
-      const codeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/code',
-        payload: { client_id: TEST_CLIENT_ID },
-      });
+      const codeRes = await requestConfidentialDeviceCode();
       const { device_code, user_code } = JSON.parse(codeRes.payload);
 
       await denyDeviceCode(user_code);
@@ -189,15 +195,35 @@ describe('Device Code Routes', () => {
   });
 
   describe('Full device code flow', () => {
+    test('rejects using a device challenge for a different user_code', async () => {
+      const address = await getAliceAddress();
+
+      const firstCodeRes = await requestConfidentialDeviceCode();
+      const { user_code: firstUserCode } = JSON.parse(firstCodeRes.payload);
+
+      const secondCodeRes = await requestConfidentialDeviceCode();
+      const { user_code: secondUserCode } = JSON.parse(secondCodeRes.payload);
+
+      const approveRes = await browserPost(app, '/v1/device/approve', { user_code: firstUserCode, address });
+      const { nonce } = JSON.parse(approveRes.payload);
+      const signature = await signWithAlice(nonce);
+
+      const confirmRes = await browserPost(app, '/v1/device/confirm', {
+        user_code: secondUserCode,
+        address,
+        nonce,
+        signature,
+      });
+
+      expect(confirmRes.statusCode).toBe(400);
+      expect(JSON.parse(confirmRes.payload).message).toContain('user_code mismatch');
+    });
+
     test('request code -> approve -> poll -> get tokens (with client auth)', async () => {
       const address = await getAliceAddress();
 
       // Step 1: Request device code
-      const codeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/code',
-        payload: { client_id: TEST_CLIENT_ID },
-      });
+      const codeRes = await requestConfidentialDeviceCode();
       const { device_code, user_code } = JSON.parse(codeRes.payload);
 
       // Step 2: Poll — should be pending
@@ -214,21 +240,13 @@ describe('Device Code Routes', () => {
       expect(pendingRes.statusCode).toBe(400);
 
       // Step 3: Approve — get challenge nonce
-      const approveRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/approve',
-        payload: { user_code, address },
-      });
+      const approveRes = await browserPost(app, '/v1/device/approve', { user_code, address });
       expect(approveRes.statusCode).toBe(200);
       const { nonce } = JSON.parse(approveRes.payload);
 
       // Step 4: Sign and confirm
       const signature = await signWithAlice(nonce);
-      const confirmRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/confirm',
-        payload: { user_code, address, nonce, signature },
-      });
+      const confirmRes = await browserPost(app, '/v1/device/confirm', { user_code, address, nonce, signature });
       expect(confirmRes.statusCode).toBe(200);
 
       // Step 5: Poll again — should get tokens
@@ -250,6 +268,54 @@ describe('Device Code Routes', () => {
       expect(body.scope).toBeDefined();
     });
 
+    test('rollback after staged refresh-token write allows one clean retry', async () => {
+      const address = await getAliceAddress();
+      const codeRes = await requestConfidentialDeviceCode();
+      const { device_code, user_code } = JSON.parse(codeRes.payload);
+
+      const approveRes = await browserPost(app, '/v1/device/approve', { user_code, address });
+      expect(approveRes.statusCode).toBe(200);
+      const { nonce } = JSON.parse(approveRes.payload);
+
+      const signature = await signWithAlice(nonce);
+      const confirmRes = await browserPost(app, '/v1/device/confirm', { user_code, address, nonce, signature });
+      expect(confirmRes.statusCode).toBe(200);
+
+      const { commitDeviceCodeRedemption, rollbackDeviceCodeRedemption } = require('../../db/deviceCodes');
+      (commitDeviceCodeRedemption as jest.Mock).mockImplementationOnce(async (client: unknown) => {
+        await rollbackDeviceCodeRedemption(client);
+        throw new Error('simulated commit failure');
+      });
+
+      const failedPoll = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          device_code,
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+        },
+      });
+      expect(failedPoll.statusCode).toBe(500);
+      expect(listTestRefreshTokens()).toHaveLength(0);
+      expect(await getDeviceCode(device_code)).not.toBeNull();
+
+      const retryPoll = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          device_code,
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+        },
+      });
+      expect(retryPoll.statusCode).toBe(200);
+      expect(listTestRefreshTokens()).toHaveLength(1);
+      expect(await getDeviceCode(device_code)).toBeNull();
+    });
+
     test('rejects polling with wrong client_id', async () => {
       // Create another client
       addTestClient(
@@ -261,11 +327,7 @@ describe('Device Code Routes', () => {
         }),
       );
 
-      const codeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/code',
-        payload: { client_id: TEST_CLIENT_ID },
-      });
+      const codeRes = await requestConfidentialDeviceCode();
       const { device_code } = JSON.parse(codeRes.payload);
 
       // Try polling with different client
@@ -284,11 +346,7 @@ describe('Device Code Routes', () => {
 
   describe('polling rate limit', () => {
     test('returns slow_down when polling too frequently', async () => {
-      const codeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/code',
-        payload: { client_id: TEST_CLIENT_ID },
-      });
+      const codeRes = await requestConfidentialDeviceCode();
       const { device_code } = JSON.parse(codeRes.payload);
 
       // First poll — authorization_pending (sets lastPolledAt)
@@ -335,7 +393,11 @@ describe('Device Code Routes', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/v1/device/code',
-        payload: { client_id: 'restricted-device', scopes: ['subnet:1:validator'] },
+        payload: {
+          client_id: 'restricted-device',
+          client_secret: TEST_CLIENT_SECRET,
+          scopes: ['subnet:1:validator'],
+        },
       });
       expect(res.statusCode).toBe(403);
       const body = JSON.parse(res.payload);
@@ -355,7 +417,11 @@ describe('Device Code Routes', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/v1/device/code',
-        payload: { client_id: 'restricted-device-2', scopes: ['subnet:1:miner'] },
+        payload: {
+          client_id: 'restricted-device-2',
+          client_secret: TEST_CLIENT_SECRET,
+          scopes: ['subnet:1:miner'],
+        },
       });
       expect(res.statusCode).toBe(200);
     });

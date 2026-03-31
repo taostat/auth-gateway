@@ -56,8 +56,13 @@ describe('Staker Scope Handler', () => {
   });
 
   test('returns false when Taostats API call fails', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     mockTaostatsGet.mockRejectedValue(new Error('Taostats unavailable'));
     const result = await stakerHandler.verify(coldkey(ALICE), { netuid: 0, minAmount: 100n * RAO });
     expect(result).toBe(false);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`Staker scope check failed for ${ALICE}:`),
+      expect.any(Error),
+    );
   });
 });

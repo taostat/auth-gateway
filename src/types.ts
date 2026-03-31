@@ -1,11 +1,26 @@
 export type { TokenResponse, ChallengeResponse, DeviceCodeResponse, HealthResponse } from './schemas/responses';
 
+export type ChallengeFlowType = 'auth' | 'oauth' | 'device';
+
+export interface ChallengeBindings {
+  flowType?: ChallengeFlowType | undefined;
+  clientId?: string | undefined;
+  redirectUri?: string | undefined;
+  userCode?: string | undefined;
+  sessionId?: string | undefined;
+}
+
 export interface AuthChallenge {
   nonce: string;
   address: string | null;
   scopes: string[];
   createdAt: number;
   expiresAt: number;
+  flowType: ChallengeFlowType | null;
+  clientId: string | null;
+  redirectUri: string | null;
+  userCode: string | null;
+  sessionId: string | null;
 }
 
 export interface JwtClaims {
@@ -20,6 +35,7 @@ export interface JwtClaims {
   client_id?: string | undefined;
   redirect_uri?: string | undefined;
   code_challenge?: string | undefined;
+  code_challenge_method?: 'S256' | undefined;
   nonce?: string | undefined;
   at_hash?: string | undefined;
   auth_time?: number | undefined;

@@ -54,7 +54,7 @@ export async function runMigrations(): Promise<void> {
     const files = fs
       .readdirSync(migrationsDir)
       .filter((f) => f.endsWith('.sql'))
-      .toSorted();
+      .sort();
 
     if (files.length === 0) {
       console.log('No migration files found');

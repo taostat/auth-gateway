@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { consumeChallenge } from '../../crypto/challenge';
+import { createChallenge, consumeChallenge } from '../../crypto/challenge';
 import { verifySignatureOrThrow } from '../../crypto/signature';
 import { createAuthCode } from '../../crypto/jwt';
 import { validateCodeChallenge } from '../../crypto/pkce';
@@ -8,13 +8,16 @@ import { validateAndNormalizeAddress, getClientSignMethod } from '../../crypto/a
 import {
   verifyScopes,
   validateScopes,
+  validateScopesForSignMethod,
   describeScopes,
   enforceClientScopes,
   resolveSignerContext,
   resolveEvmSignerContext,
 } from '../../scopes';
 import { getClientById } from '../../db/clients';
+import { getAuthorizeSession, consumeAuthorizeSession, createAuthorizeSession } from '../../db/authorizeSessions';
 import { AuthError } from '../../util/errors';
+import { sameScopeSet } from '../../util/scopes';
 import { config } from '../../config';
 import { OAuthClient } from '../../types';
 import {
@@ -30,9 +33,72 @@ import {
 import { applyHtmlSecurityHeaders, sendHtmlError, generateNonce } from './shared';
 import { cssLinks } from '../../styles';
 import { testnetBannerHtml } from '../../util/testnet';
-import { AuthorizeQuerySchema, CallbackBodySchema } from '../../schemas/oauth';
+import { AuthorizeQuerySchema, CallbackBodySchema, OAuthChallengeBodySchema } from '../../schemas/oauth';
+import { ChallengeResponseSchema } from '../../schemas/responses';
+import { sameOriginPreHandler } from '../../middleware/origin';
 
 export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
+  fastify.post<{
+    Body: z.infer<typeof OAuthChallengeBodySchema>;
+  }>(
+    '/v1/oauth/challenge',
+    {
+      preHandler: sameOriginPreHandler,
+      schema: {
+        tags: ['OAuth'],
+        summary: 'Create an OAuth-bound signing challenge',
+        body: OAuthChallengeBodySchema,
+        response: { 200: ChallengeResponseSchema },
+      },
+      config: {
+        rateLimit: {
+          max: config.rateLimitChallenge,
+          timeWindow: '1 minute',
+        },
+      },
+    },
+    async (request, reply) => {
+      const { session_id, address: rawAddress } = request.body;
+
+      const session = await getAuthorizeSession(session_id);
+      if (!session) {
+        throw new AuthError('Invalid or expired authorize session', 400, 'Bad Request');
+      }
+
+      const client = await getClientById(session.clientId);
+      if (!client) {
+        throw new AuthError('Unknown client_id', 400, 'Bad Request');
+      }
+
+      const clientSignMethod = getClientSignMethod(client.allowed_sign_methods);
+
+      let address: string | null = null;
+      if (rawAddress) {
+        const result = validateAndNormalizeAddress(rawAddress);
+        address = result.address;
+        if (result.method !== clientSignMethod) {
+          throw new AuthError('This client requires a different wallet type', 400, 'Bad Request');
+        }
+      }
+
+      if (session.scopes.length > 0) {
+        validateScopesForSignMethod(session.scopes, clientSignMethod);
+      }
+
+      const challenge = await createChallenge(address, session.scopes, {
+        flowType: 'oauth',
+        clientId: session.clientId,
+        redirectUri: session.redirectUri,
+        sessionId: session.sessionId,
+      });
+
+      return reply.code(200).send({
+        nonce: challenge.nonce,
+        expires_in: config.challengeTtlSeconds,
+      });
+    },
+  );
+
   // GET /v1/oauth/authorize
   fastify.get(
     '/v1/oauth/authorize',
@@ -64,7 +130,11 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         return sendHtmlError(reply, 400, 'Bad Request', 'Missing required parameters: client_id and redirect_uri');
       }
 
-      if (response_type && response_type !== 'code') {
+      if (!response_type) {
+        return sendHtmlError(reply, 400, 'Bad Request', 'Missing required parameter: response_type');
+      }
+
+      if (response_type !== 'code') {
         return sendHtmlError(reply, 400, 'Bad Request', 'Unsupported response_type. Only "code" is supported.');
       }
 
@@ -97,14 +167,22 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
             reply,
             400,
             'PKCE Required',
-            'Public clients must provide code_challenge with code_challenge_method=S256.',
+            'Public clients must provide code_challenge with explicit code_challenge_method=S256.',
           );
         }
       }
 
-      // Validate code_challenge_method if provided
-      if (code_challenge_method && code_challenge_method !== 'S256') {
-        return sendHtmlError(reply, 400, 'Bad Request', 'Only code_challenge_method=S256 is supported.');
+      if (code_challenge_method && !code_challenge) {
+        return sendHtmlError(reply, 400, 'Bad Request', 'code_challenge_method requires code_challenge.');
+      }
+
+      if (code_challenge && code_challenge_method !== 'S256') {
+        return sendHtmlError(
+          reply,
+          400,
+          'Bad Request',
+          'This server requires explicit code_challenge_method=S256 whenever code_challenge is provided.',
+        );
       }
 
       // Validate code_challenge format if provided
@@ -132,6 +210,16 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const scopeDescriptions = describeScopes(scopes);
+
+      const sessionId = await createAuthorizeSession({
+        clientId: client_id,
+        redirectUri: redirect_uri,
+        scopes,
+        codeChallenge: code_challenge,
+        codeChallengeMethod: code_challenge_method === 'S256' ? 'S256' : undefined,
+        oidcNonce,
+        state,
+      });
 
       const cspNonce = generateNonce();
       const clientSignMethod = getClientSignMethod(client.allowed_sign_methods);
@@ -212,12 +300,9 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
 
   <script nonce="${cspNonce}" data-cfasync="false">
     const CONFIG = {
-      clientId: ${serializeForInlineScript(client_id)},
+      sessionId: ${serializeForInlineScript(sessionId)},
       redirectUri: ${serializeForInlineScript(redirect_uri)},
       state: ${serializeForInlineScript(state || '')},
-      scopes: ${serializeForInlineScript(scopes)},
-      codeChallenge: ${serializeForInlineScript(code_challenge || '')},
-      oidcNonce: ${serializeForInlineScript(oidcNonce || '')},
       signMethod: ${serializeForInlineScript(clientSignMethod)},
     };
 
@@ -261,10 +346,10 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
 
           btn.textContent = 'Signing...';
 
-          var challengeRes = await fetch('/v1/auth/challenge', {
+          var challengeRes = await fetch('/v1/oauth/challenge', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ address: address, scopes: CONFIG.scopes }),
+            body: JSON.stringify({ session_id: CONFIG.sessionId, address: address }),
           });
           if (!challengeRes.ok) { var e = await challengeRes.json(); throw new Error(e.message); }
           var challengeData = await challengeRes.json();
@@ -297,10 +382,10 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
 
           btn.textContent = 'Signing...';
 
-          var challengeRes2 = await fetch('/v1/auth/challenge', {
+          var challengeRes2 = await fetch('/v1/oauth/challenge', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ address: address, scopes: CONFIG.scopes }),
+            body: JSON.stringify({ session_id: CONFIG.sessionId, address: address }),
           });
           if (!challengeRes2.ok) { var e2 = await challengeRes2.json(); throw new Error(e2.message); }
           var challengeData2 = await challengeRes2.json();
@@ -322,13 +407,10 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            session_id: CONFIG.sessionId,
             nonce: nonce,
             address: address,
             signature: signature,
-            client_id: CONFIG.clientId,
-            redirect_uri: CONFIG.redirectUri,
-            code_challenge: CONFIG.codeChallenge || undefined,
-            oidc_nonce: CONFIG.oidcNonce || undefined,
           }),
         });
         if (!verifyRes.ok) { const e3 = await verifyRes.json(); throw new Error(e3.message); }
@@ -353,10 +435,10 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       document.getElementById('cli-refresh').style.display = 'none';
 
       try {
-        const challengeRes = await fetch('/v1/auth/challenge', {
+        const challengeRes = await fetch('/v1/oauth/challenge', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scopes: CONFIG.scopes }),
+          body: JSON.stringify({ session_id: CONFIG.sessionId }),
         });
         if (!challengeRes.ok) { const e = await challengeRes.json(); throw new Error(e.message); }
         const data = await challengeRes.json();
@@ -411,13 +493,10 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            session_id: CONFIG.sessionId,
             nonce: cliNonce,
             address,
             signature,
-            client_id: CONFIG.clientId,
-            redirect_uri: CONFIG.redirectUri,
-            code_challenge: CONFIG.codeChallenge || undefined,
-            oidc_nonce: CONFIG.oidcNonce || undefined,
           }),
         });
         if (!verifyRes.ok) { const e = await verifyRes.json(); throw new Error(e.message); }
@@ -495,9 +574,12 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   // POST /v1/oauth/callback — internal endpoint used by the authorize page
-  fastify.post(
+  fastify.post<{
+    Body: z.infer<typeof CallbackBodySchema>;
+  }>(
     '/v1/oauth/callback',
     {
+      preHandler: sameOriginPreHandler,
       schema: {
         tags: ['OAuth'],
         summary: 'Exchange signature for auth code',
@@ -510,26 +592,23 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         },
       },
     },
-    async (
-      request: FastifyRequest<{
-        Body: z.infer<typeof CallbackBodySchema>;
-      }>,
-      reply: FastifyReply,
-    ) => {
-      const {
-        nonce,
-        address: rawAddress,
-        signature,
-        client_id,
-        redirect_uri,
-        code_challenge,
-        oidc_nonce,
-      } = request.body;
+    async (request, reply) => {
+      const { session_id, nonce, address: rawAddress, signature } = request.body;
 
-      // Look up client to get sign method
-      const callbackClient = await getClientById(client_id);
+      // Look up session (non-destructive — consumed only after all checks pass)
+      const session = await getAuthorizeSession(session_id);
+      if (!session) {
+        throw new AuthError('Invalid or expired authorize session', 400, 'Bad Request');
+      }
+
+      const callbackClient = await getClientById(session.clientId);
       if (!callbackClient) {
         throw new AuthError('Unknown client_id', 400, 'Bad Request');
+      }
+
+      // Revalidate redirect_uri against current client registration
+      if (!callbackClient.redirect_uris.includes(session.redirectUri)) {
+        throw new AuthError('redirect_uri no longer registered for this client', 400, 'Bad Request');
       }
 
       const clientMethod = getClientSignMethod(callbackClient.allowed_sign_methods);
@@ -539,17 +618,30 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         throw new AuthError(`This client requires ${clientMethod} wallet signing`, 400, 'Bad Request');
       }
 
-      // Consume challenge
       const challenge = await consumeChallenge(nonce);
+
+      if (challenge.flowType !== 'oauth') {
+        throw new AuthError('Challenge was created for a different authentication flow', 400, 'Bad Request');
+      }
+      if (challenge.sessionId !== session.sessionId) {
+        throw new AuthError('Challenge was created for a different authorize session', 400, 'Bad Request');
+      }
+      if (challenge.clientId !== session.clientId) {
+        throw new AuthError('client_id mismatch', 400, 'Bad Request');
+      }
+      if (challenge.redirectUri !== session.redirectUri) {
+        throw new AuthError('redirect_uri mismatch', 400, 'Bad Request');
+      }
+      if (!sameScopeSet(challenge.scopes, session.scopes)) {
+        throw new AuthError('Scope mismatch between challenge and authorize session', 400, 'Bad Request');
+      }
 
       if (challenge.address && challenge.address !== address) {
         throw new AuthError('Address mismatch', 401, 'Unauthorized');
       }
 
-      // Verify signature (method-aware)
       await verifySignatureOrThrow(nonce, signature, address, method);
 
-      // Resolve signer context
       const isEvm = method === 'evm';
       const signerCtx = isEvm ? resolveEvmSignerContext(address) : await resolveSignerContext(address);
 
@@ -557,29 +649,32 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         await verifyScopes(signerCtx, challenge.scopes);
       }
 
-      // Validate client and enforce scope restrictions
-      if (callbackClient.redirect_uris.length > 0) {
-        if (!redirect_uri) {
-          throw new AuthError('redirect_uri is required', 400, 'Bad Request');
-        }
-        if (!callbackClient.redirect_uris.includes(redirect_uri)) {
-          throw new AuthError('redirect_uri not registered for this client', 400, 'Bad Request');
-        }
-      }
       if (challenge.scopes.length > 0) {
         enforceClientScopes(challenge.scopes, callbackClient.allowed_scopes);
       }
 
-      if (code_challenge && !validateCodeChallenge(code_challenge)) {
+      if (session.codeChallenge && !validateCodeChallenge(session.codeChallenge)) {
         throw new AuthError('Invalid code_challenge format', 400, 'Bad Request');
       }
+      if (session.codeChallenge && session.codeChallengeMethod !== 'S256') {
+        throw new AuthError('Authorize session missing supported code_challenge_method', 400, 'Bad Request');
+      }
+      if (!session.codeChallenge && session.codeChallengeMethod) {
+        throw new AuthError('Authorize session has code_challenge_method without code_challenge', 400, 'Bad Request');
+      }
 
-      // Create auth code with client context embedded
+      // All validations passed — consume session (single-use) before minting code
+      const consumed = await consumeAuthorizeSession(session_id);
+      if (!consumed) {
+        throw new AuthError('Authorize session already used', 400, 'Bad Request');
+      }
+
       const code = createAuthCode(address, challenge.scopes, {
-        client_id,
-        redirect_uri,
-        code_challenge,
-        nonce: oidc_nonce,
+        client_id: session.clientId,
+        redirect_uri: session.redirectUri,
+        code_challenge: session.codeChallenge ?? undefined,
+        code_challenge_method: session.codeChallengeMethod ?? undefined,
+        nonce: session.oidcNonce ?? undefined,
         auth_time: Math.floor(Date.now() / 1000),
         hotkey: signerCtx.hotkey,
         coldkey: signerCtx.coldkey,

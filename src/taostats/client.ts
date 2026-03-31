@@ -25,7 +25,7 @@ const cache = new BoundedMap<string, CacheEntry>(
 );
 
 function buildCacheKey(path: string, params: Record<string, string>): string {
-  const sorted = Object.entries(params).toSorted(([a], [b]) => a.localeCompare(b));
+  const sorted = Object.entries(params).sort(([a], [b]) => a.localeCompare(b));
   return `${path}?${sorted.map(([k, v]) => `${k}=${v}`).join('&')}`;
 }
 

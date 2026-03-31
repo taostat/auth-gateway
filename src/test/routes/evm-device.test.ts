@@ -34,7 +34,7 @@ jest.mock('../../subtensor/queries', () => {
 });
 
 import { FastifyInstance } from 'fastify';
-import { buildTestApp } from '../helpers/app';
+import { browserGet, browserPost, buildTestApp } from '../helpers/app';
 import { getTestEvmAddress, signWithTestEvmWallet } from '../helpers/evmSign';
 import { verifyToken } from '../../crypto/jwt';
 
@@ -71,13 +71,21 @@ beforeEach(() => {
 describe('EVM Device Code Routes', () => {
   const evmAddress = getTestEvmAddress();
 
+  async function requestEvmDeviceCode(payload?: Record<string, unknown>) {
+    return app.inject({
+      method: 'POST',
+      url: '/v1/device/code',
+      payload: {
+        client_id: EVM_DEVICE_CLIENT_ID,
+        client_secret: TEST_CLIENT_SECRET,
+        ...payload,
+      },
+    });
+  }
+
   describe('POST /v1/device/code', () => {
     test('accepts openid scope for EVM client', async () => {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/v1/device/code',
-        payload: { client_id: EVM_DEVICE_CLIENT_ID, scopes: ['openid'] },
-      });
+      const res = await requestEvmDeviceCode({ scopes: ['openid'] });
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.payload);
       expect(body.device_code).toBeDefined();
@@ -85,40 +93,24 @@ describe('EVM Device Code Routes', () => {
     });
 
     test('rejects subnet scope for EVM client', async () => {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/v1/device/code',
-        payload: { client_id: EVM_DEVICE_CLIENT_ID, scopes: ['subnet:1:miner'] },
-      });
+      const res = await requestEvmDeviceCode({ scopes: ['subnet:1:miner'] });
       expect(res.statusCode).toBe(400);
     });
 
     test('accepts empty scopes for EVM client', async () => {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/v1/device/code',
-        payload: { client_id: EVM_DEVICE_CLIENT_ID },
-      });
+      const res = await requestEvmDeviceCode();
       expect(res.statusCode).toBe(200);
     });
   });
 
   describe('POST /v1/device/approve', () => {
     test('rejects sr25519 address for EVM client', async () => {
-      const codeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/code',
-        payload: { client_id: EVM_DEVICE_CLIENT_ID },
-      });
+      const codeRes = await requestEvmDeviceCode();
       const { user_code } = JSON.parse(codeRes.payload);
 
-      const approveRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/approve',
-        payload: {
-          user_code,
-          address: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
-        },
+      const approveRes = await browserPost(app, '/v1/device/approve', {
+        user_code,
+        address: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
       });
       expect(approveRes.statusCode).toBe(400);
       const body = JSON.parse(approveRes.payload);
@@ -126,18 +118,10 @@ describe('EVM Device Code Routes', () => {
     });
 
     test('accepts EVM address for EVM client', async () => {
-      const codeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/code',
-        payload: { client_id: EVM_DEVICE_CLIENT_ID },
-      });
+      const codeRes = await requestEvmDeviceCode();
       const { user_code } = JSON.parse(codeRes.payload);
 
-      const approveRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/approve',
-        payload: { user_code, address: evmAddress },
-      });
+      const approveRes = await browserPost(app, '/v1/device/approve', { user_code, address: evmAddress });
       expect(approveRes.statusCode).toBe(200);
       const body = JSON.parse(approveRes.payload);
       expect(body.nonce).toMatch(/^taostats-auth:/);
@@ -146,31 +130,19 @@ describe('EVM Device Code Routes', () => {
 
   describe('POST /v1/device/confirm', () => {
     test('rejects sr25519 address at confirm step', async () => {
-      const codeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/code',
-        payload: { client_id: EVM_DEVICE_CLIENT_ID },
-      });
+      const codeRes = await requestEvmDeviceCode();
       const { user_code } = JSON.parse(codeRes.payload);
 
       // Approve with EVM address
-      const approveRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/approve',
-        payload: { user_code, address: evmAddress },
-      });
+      const approveRes = await browserPost(app, '/v1/device/approve', { user_code, address: evmAddress });
       const { nonce } = JSON.parse(approveRes.payload);
 
       // Attempt confirm with sr25519 address
-      const confirmRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/confirm',
-        payload: {
-          user_code,
-          address: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
-          nonce,
-          signature: '0x' + '00'.repeat(64),
-        },
+      const confirmRes = await browserPost(app, '/v1/device/confirm', {
+        user_code,
+        address: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+        nonce,
+        signature: '0x' + '00'.repeat(64),
       });
       expect(confirmRes.statusCode).toBe(400);
     });
@@ -179,28 +151,21 @@ describe('EVM Device Code Routes', () => {
   describe('full device code flow (EVM)', () => {
     test('request -> approve -> confirm -> poll -> tokens', async () => {
       // 1. Request device code
-      const codeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/code',
-        payload: { client_id: EVM_DEVICE_CLIENT_ID, scopes: ['openid'] },
-      });
+      const codeRes = await requestEvmDeviceCode({ scopes: ['openid'] });
       const { device_code, user_code } = JSON.parse(codeRes.payload);
 
       // 2. Approve
-      const approveRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/approve',
-        payload: { user_code, address: evmAddress },
-      });
+      const approveRes = await browserPost(app, '/v1/device/approve', { user_code, address: evmAddress });
       expect(approveRes.statusCode).toBe(200);
       const { nonce } = JSON.parse(approveRes.payload);
 
       // 3. Sign and confirm
       const signature = await signWithTestEvmWallet(nonce);
-      const confirmRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/confirm',
-        payload: { user_code, address: evmAddress, nonce, signature },
+      const confirmRes = await browserPost(app, '/v1/device/confirm', {
+        user_code,
+        address: evmAddress,
+        nonce,
+        signature,
       });
       expect(confirmRes.statusCode).toBe(200);
 
@@ -232,28 +197,16 @@ describe('EVM Device Code Routes', () => {
 
     test('scopeless EVM device code flow', async () => {
       // 1. Request device code (no scopes)
-      const codeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/code',
-        payload: { client_id: EVM_DEVICE_CLIENT_ID },
-      });
+      const codeRes = await requestEvmDeviceCode();
       const { device_code, user_code } = JSON.parse(codeRes.payload);
 
       // 2. Approve
-      const approveRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/approve',
-        payload: { user_code, address: evmAddress },
-      });
+      const approveRes = await browserPost(app, '/v1/device/approve', { user_code, address: evmAddress });
       const { nonce } = JSON.parse(approveRes.payload);
 
       // 3. Sign and confirm
       const signature = await signWithTestEvmWallet(nonce);
-      await app.inject({
-        method: 'POST',
-        url: '/v1/device/confirm',
-        payload: { user_code, address: evmAddress, nonce, signature },
-      });
+      await browserPost(app, '/v1/device/confirm', { user_code, address: evmAddress, nonce, signature });
 
       // 4. Poll for tokens
       const tokenRes = await app.inject({
@@ -277,17 +230,10 @@ describe('EVM Device Code Routes', () => {
 
   describe('GET /v1/device/scopes', () => {
     test('returns sign_method for EVM client', async () => {
-      const codeRes = await app.inject({
-        method: 'POST',
-        url: '/v1/device/code',
-        payload: { client_id: EVM_DEVICE_CLIENT_ID, scopes: ['openid'] },
-      });
+      const codeRes = await requestEvmDeviceCode({ scopes: ['openid'] });
       const { user_code } = JSON.parse(codeRes.payload);
 
-      const scopesRes = await app.inject({
-        method: 'GET',
-        url: `/v1/device/scopes?user_code=${user_code}`,
-      });
+      const scopesRes = await browserGet(app, `/v1/device/scopes?user_code=${user_code}`);
       expect(scopesRes.statusCode).toBe(200);
       const body = JSON.parse(scopesRes.payload);
       expect(body.sign_method).toBe('evm');

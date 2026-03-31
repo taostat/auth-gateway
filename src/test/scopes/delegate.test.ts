@@ -75,8 +75,13 @@ describe('Delegate Scope Handler', () => {
   });
 
   test('returns false when Taostats API call fails', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     mockTaostatsGet.mockRejectedValue(new Error('Taostats unavailable'));
     const result = await delegateHandler.verify(coldkey(ALICE), { netuid: 0, hotkey: VALIDATOR, minAmount: 1n * RAO });
     expect(result).toBe(false);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`Delegate scope check failed for ${ALICE} -> ${VALIDATOR}:`),
+      expect.any(Error),
+    );
   });
 });
