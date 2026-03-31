@@ -81,7 +81,7 @@ export async function getDeviceCodeByUserCode(userCode: string): Promise<DbDevic
 export async function approveDeviceCode(userCode: string, address: string): Promise<boolean> {
   const pool = getPool();
   const { rowCount } = await pool.query(
-    'UPDATE device_codes SET approved = TRUE, address = $1, approved_at = now() WHERE user_code = $2 AND approved = FALSE AND denied = FALSE',
+    'UPDATE device_codes SET approved = TRUE, address = $1, approved_at = now() WHERE user_code = $2 AND approved = FALSE AND denied = FALSE AND expires_at > now()',
     [address, userCode],
   );
   return (rowCount ?? 0) > 0;

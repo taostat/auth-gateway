@@ -612,6 +612,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
 
       const challenge = await createChallenge(address, found.scopes, {
         flowType: 'device',
+        clientId: found.clientId,
         userCode: user_code,
       });
 
@@ -686,7 +687,10 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       // Mark as approved in DB
-      await approveDeviceCode(user_code, address);
+      const approved = await approveDeviceCode(user_code, address);
+      if (!approved) {
+        throw new DeviceCodeError('Device code expired or already used', 409);
+      }
 
       return reply.code(200).send({ status: 'approved' });
     },
