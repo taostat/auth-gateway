@@ -172,7 +172,6 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
   }>(
     '/v1/device/scopes',
     {
-      preHandler: sameOriginPreHandler,
       schema: {
         tags: ['Device Code'],
         summary: 'Look up scopes for a user code',
