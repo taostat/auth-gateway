@@ -1,6 +1,6 @@
 {
   "name": "taostats-auth-gateway",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "description": "OAuth 2.0 authentication gateway — Bittensor and Ethereum wallet verification, RS256 JWTs, and on-chain role-based access control",
   "license": "Apache-2.0",
   "main": "dist/index.js",
