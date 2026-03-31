@@ -1,7 +1,13 @@
 -- Add foreign key constraints for referential integrity.
 -- authorize_sessions and challenges reference oauth_clients but lacked FK constraints.
--- ON DELETE SET NULL: allow client deactivation/deletion without blocking cleanup of
--- short-lived rows (challenges TTL 120s, sessions TTL 600s).
+--
+-- authorize_sessions.client_id is NOT NULL, so use NO ACTION (restrict deletion
+-- while active sessions exist — they expire in 10min anyway).
+-- challenges.client_id is nullable, so ON DELETE SET NULL is safe.
+--
+-- NOT VALID skips validation of existing rows during ALTER, avoiding failure on
+-- orphaned legacy data. VALIDATE CONSTRAINT then checks asynchronously without
+-- holding an ACCESS EXCLUSIVE lock on the referenced table.
 
 DO $$ BEGIN
   IF NOT EXISTS (
@@ -10,9 +16,12 @@ DO $$ BEGIN
     ALTER TABLE authorize_sessions
       ADD CONSTRAINT fk_authorize_sessions_client
       FOREIGN KEY (client_id) REFERENCES oauth_clients(client_id)
-      ON DELETE SET NULL;
+      NOT VALID;
   END IF;
 END $$;
+
+ALTER TABLE authorize_sessions
+  VALIDATE CONSTRAINT fk_authorize_sessions_client;
 
 DO $$ BEGIN
   IF NOT EXISTS (
@@ -21,6 +30,10 @@ DO $$ BEGIN
     ALTER TABLE challenges
       ADD CONSTRAINT fk_challenges_client
       FOREIGN KEY (client_id) REFERENCES oauth_clients(client_id)
-      ON DELETE SET NULL;
+      ON DELETE SET NULL
+      NOT VALID;
   END IF;
 END $$;
+
+ALTER TABLE challenges
+  VALIDATE CONSTRAINT fk_challenges_client;
