@@ -20,11 +20,9 @@ jobs:
         run: |
           REF="${GITHUB_REF#refs/tags/}"
           if [[ "$REF" == *-dev ]]; then
-            echo "overlay=development" >> "$GITHUB_OUTPUT"
-            echo "is_prod=false" >> "$GITHUB_OUTPUT"
+            echo "overlays=development" >> "$GITHUB_OUTPUT"
           else
-            echo "overlay=production" >> "$GITHUB_OUTPUT"
-            echo "is_prod=true" >> "$GITHUB_OUTPUT"
+            echo "overlays=production testnet" >> "$GITHUB_OUTPUT"
           fi
           echo "tag=$REF" >> "$GITHUB_OUTPUT"
 
@@ -86,6 +84,5 @@ jobs:
             {
               "app": "${{ github.event.repository.name }}",
               "tag": "${{ steps.env.outputs.tag }}",
-              "overlay": "${{ steps.env.outputs.overlay }}",
-              "is_prod": "${{ steps.env.outputs.is_prod }}"
+              "overlays": "${{ steps.env.outputs.overlays }}"
             }
