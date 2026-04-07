@@ -79,10 +79,12 @@ jobs:
         with:
           token: ${{ secrets.GH_PAT }}
           repository: taostat/ci-cd-repo
-          event-type: image-pushed
+          event-type: update-image
           client-payload: >-
             {
-              "app": "${{ github.event.repository.name }}",
-              "tag": "${{ steps.env.outputs.tag }}",
-              "overlays": "${{ steps.env.outputs.overlays }}"
+              "shared-secret": "${{ secrets.GH_PAT }}",
+              "project-name": "${{ github.event.repository.name }}",
+              "image-name": "auth-gateway",
+              "version": "${{ steps.env.outputs.tag }}",
+              "paths": "${{ steps.env.outputs.overlays }}"
             }
