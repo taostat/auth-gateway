@@ -38,7 +38,7 @@
     "fastify-type-provider-zod": "6.1.0",
     "jsonwebtoken": "9.0.3",
     "pg": "8.20.0",
-    "viem": "^2.47.4",
+    "viem": "^2.47.10",
     "zod": "4.3.6"
   },
   "devDependencies": {
