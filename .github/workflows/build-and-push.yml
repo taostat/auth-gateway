@@ -1,4 +1,4 @@
-name: Build and Push to K8s
+name: Build and Push
 
 on:
   push:
@@ -20,11 +20,9 @@ jobs:
         run: |
           REF="${GITHUB_REF#refs/tags/}"
           if [[ "$REF" == *-dev ]]; then
-            echo "overlay=development" >> "$GITHUB_OUTPUT"
-            echo "is_prod=false" >> "$GITHUB_OUTPUT"
+            echo "overlays=development" >> "$GITHUB_OUTPUT"
           else
-            echo "overlay=production" >> "$GITHUB_OUTPUT"
-            echo "is_prod=true" >> "$GITHUB_OUTPUT"
+            echo "overlays=production testnet" >> "$GITHUB_OUTPUT"
           fi
           echo "tag=$REF" >> "$GITHUB_OUTPUT"
 
@@ -76,21 +74,17 @@ jobs:
           registry-username: ${{ secrets.QUAY_USERNAME }}
           registry-password: ${{ secrets.QUAY_PASSWORD }}
 
-      - name: Update CI/CD repo kustomize image tag
-        uses: ./.github/actions/update-ci-cd
+      - name: Trigger deployment
+        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0  # v3.0.0
         with:
-          argo-project-name: taostats-${{ github.event.repository.name }}
-          kustomize-path: overlays/${{ steps.env.outputs.overlay }}
-          image-name: ${{ github.event.repository.name }}
-          version: ${{ steps.env.outputs.tag }}
           token: ${{ secrets.GH_PAT }}
-
-      - name: Update testnet overlay (same image as production)
-        if: steps.env.outputs.is_prod == 'true'
-        uses: ./.github/actions/update-ci-cd
-        with:
-          argo-project-name: taostats-${{ github.event.repository.name }}
-          kustomize-path: overlays/testnet
-          image-name: ${{ github.event.repository.name }}
-          version: ${{ steps.env.outputs.tag }}
-          token: ${{ secrets.GH_PAT }}
+          repository: taostat/ci-cd-repo
+          event-type: update-image
+          client-payload: >-
+            {
+              "shared-secret": "${{ secrets.GH_PAT }}",
+              "project-name": "${{ github.event.repository.name }}",
+              "image-name": "auth-gateway",
+              "version": "${{ steps.env.outputs.tag }}",
+              "paths": "${{ steps.env.outputs.overlays }}"
+            }
