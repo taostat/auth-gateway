@@ -20,9 +20,9 @@ jobs:
         run: |
           REF="${GITHUB_REF#refs/tags/}"
           if [[ "$REF" == *-dev ]]; then
-            echo "overlays=overlays/development" >> "$GITHUB_OUTPUT"
+            echo "overlays=development" >> "$GITHUB_OUTPUT"
           else
-            echo "overlays=overlays/production overlays/testnet" >> "$GITHUB_OUTPUT"
+            echo "overlays=production testnet" >> "$GITHUB_OUTPUT"
           fi
           echo "tag=$REF" >> "$GITHUB_OUTPUT"
 
