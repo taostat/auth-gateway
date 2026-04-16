@@ -115,17 +115,24 @@ export function createMockApi(state: MockChainState) {
         }),
       },
       subtensorModule: {
-        keys: {
-          entries: jest.fn().mockImplementation((netuid: number) => {
-            const keysMap = state.keys.get(netuid) || new Map();
-            return Promise.resolve(
-              Array.from(keysMap.entries()).map(([uid, hotkey]) => [
-                { args: [{ toNumber: () => netuid }, { toNumber: () => uid }] },
-                { toString: () => hotkey },
-              ]),
-            );
-          }),
-        },
+        uids: jest.fn().mockImplementation((netuid: number, hotkey: string) => {
+          const keysMap = state.keys.get(netuid) || new Map();
+          for (const [uid, registeredHotkey] of keysMap.entries()) {
+            if (registeredHotkey === hotkey) {
+              return Promise.resolve({
+                isNone: false,
+                isSome: true,
+                unwrap: () => ({ toNumber: () => uid }),
+                toNumber: () => uid,
+              });
+            }
+          }
+          return Promise.resolve({
+            isNone: true,
+            isSome: false,
+            toNumber: () => 0,
+          });
+        }),
         dividends: jest.fn().mockImplementation((netuid: number) => {
           const divs = state.dividends.get(netuid) || [];
           return Promise.resolve({ toJSON: () => divs });
