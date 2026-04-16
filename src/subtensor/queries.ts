@@ -2,12 +2,6 @@ import { getSubtensorApi } from './client';
 import { config } from '../config';
 import { BoundedMap } from '../util/boundedMap';
 
-const KEYS_CACHE_TTL_MS = 30000;
-const keysCache = new BoundedMap<number, { keys: Map<number, string>; fetchedAt: number }>(
-  64,
-  (entry) => Date.now() - entry.fetchedAt > KEYS_CACHE_TTL_MS,
-);
-
 function withTimeout<T>(promise: Promise<T>, label: string, ms: number = config.subtensorQueryTimeout): Promise<T> {
   return Promise.race<T>([
     promise,
@@ -17,24 +11,19 @@ function withTimeout<T>(promise: Promise<T>, label: string, ms: number = config.
   ]);
 }
 
-/**
- * Get all registered hotkeys for a given netuid.
- * Returns Map<uid, hotkey_address>
- */
-export async function getKeysForNetuid(netuid: number): Promise<Map<number, string>> {
-  const api = await getSubtensorApi();
-  const entries: any = await withTimeout(
-    (api.query as any).subtensorModule.keys.entries(netuid),
-    `keys.entries(${netuid})`,
-  );
-  const keys = new Map<number, string>();
-  for (const [storageKey, value] of entries) {
-    // storageKey.args = [netuid, uid]
-    const uid = (storageKey.args as any)[1].toNumber();
-    const hotkey = value.toString();
-    keys.set(uid, hotkey);
-  }
-  return keys;
+interface UidCacheEntry {
+  uid: number | undefined;
+  expiresAt: number;
+}
+
+const UID_CACHE_FALLBACK_TTL_MS = 60_000;
+const uidCache = new BoundedMap<string, UidCacheEntry>(
+  4096,
+  (entry) => Date.now() >= entry.expiresAt,
+);
+
+function uidCacheKey(netuid: number, hotkey: string): string {
+  return `${netuid}:${hotkey}`;
 }
 
 /**
@@ -213,17 +202,34 @@ export async function getValidatorPermits(netuid: number): Promise<boolean[]> {
 /**
  * Find the UID for a hotkey on a given netuid.
  * Returns undefined if the hotkey is not registered.
+ *
+ * Uses the on-chain `Uids` double-map (netuid, hotkey) -> uid, which
+ * is an O(1) storage lookup. Results are cached per (netuid, hotkey)
+ * until the next epoch boundary — registrations resolve at epoch
+ * boundaries, so an entry is stable for the rest of the current epoch.
  */
 export async function findUidByHotkey(netuid: number, hotkey: string): Promise<number | undefined> {
-  const now = Date.now();
-  let cached = keysCache.get(netuid);
-  if (!cached || now - cached.fetchedAt > KEYS_CACHE_TTL_MS) {
-    const keys = await getKeysForNetuid(netuid);
-    cached = { keys, fetchedAt: now };
-    keysCache.set(netuid, cached);
-  }
-  for (const [uid, registeredHotkey] of cached.keys) {
-    if (registeredHotkey === hotkey) return uid;
-  }
-  return undefined;
+  const key = uidCacheKey(netuid, hotkey);
+  const cached = uidCache.get(key);
+  if (cached) return cached.uid;
+
+  const api = await getSubtensorApi();
+  const result: any = await withTimeout(
+    (api.query as any).subtensorModule.uids(netuid, hotkey),
+    `uids(${netuid}, ${hotkey})`,
+  );
+
+  let uid: number | undefined;
+  if ('isNone' in result && result.isNone) uid = undefined;
+  else if ('isSome' in result) uid = result.unwrap().toNumber();
+  else if ('toNumber' in result) uid = result.toNumber();
+  else uid = undefined;
+
+  const secondsUntilNextEpoch = await getSecondsUntilNextEpoch(netuid);
+  const ttlMs = secondsUntilNextEpoch !== null
+    ? secondsUntilNextEpoch * 1000
+    : UID_CACHE_FALLBACK_TTL_MS;
+  uidCache.set(key, { uid, expiresAt: Date.now() + ttlMs });
+
+  return uid;
 }
