@@ -5,7 +5,9 @@ import {
   createPublicTestClient,
   addTestClient,
   clearTestClients,
+  clearTestOAuthEvents,
   clearTestRefreshTokens,
+  listTestOAuthEvents,
   TEST_CLIENT_ID,
   TEST_CLIENT_SECRET,
 } from '../helpers/mockDb';
@@ -236,6 +238,37 @@ describe('OAuth Routes', () => {
       expect(body.refresh_token).toBeDefined();
       expect(body.token_type).toBe('Bearer');
       expect(body.scope).toBeDefined();
+    });
+
+    test('records token_exchange success event with subject hash', async () => {
+      clearTestOAuthEvents();
+      const address = await getAliceAddress();
+
+      const { sessionId, nonce } = await getOAuthChallenge({ address, clientId: TEST_CLIENT_ID });
+      const signature = await signWithAlice(nonce);
+
+      const callbackRes = await postOAuthCallback({ session_id: sessionId, nonce, address, signature });
+      expect(callbackRes.statusCode).toBe(200);
+      const { code } = JSON.parse(callbackRes.payload);
+
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          grant_type: 'authorization_code',
+          code,
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+          redirect_uri: 'http://localhost:3001/callback',
+        },
+      });
+      expect(tokenRes.statusCode).toBe(200);
+
+      const successExchanges = listTestOAuthEvents().filter(
+        (e) => e.event_type === 'token_exchange' && e.outcome === 'success',
+      );
+      expect(successExchanges).toHaveLength(1);
+      expect(successExchanges[0]!.subject_hash).not.toBeNull();
     });
 
     test('returns 401 for invalid auth code', async () => {

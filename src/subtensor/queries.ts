@@ -1,14 +1,24 @@
 import { getSubtensorApi } from './client';
 import { config } from '../config';
 import { BoundedMap } from '../util/boundedMap';
+import { subtensorQueryDurationSeconds } from '../metrics/registry';
 
-function withTimeout<T>(promise: Promise<T>, label: string, ms: number = config.subtensorQueryTimeout): Promise<T> {
-  return Promise.race<T>([
-    promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`Subtensor query timed out: ${label} (${ms}ms)`)), ms),
-    ),
-  ]);
+async function withTimeout<T>(promise: Promise<T>, label: string, ms: number = config.subtensorQueryTimeout): Promise<T> {
+  let timeoutId: NodeJS.Timeout;
+  const timer = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`Subtensor query timed out: ${label} (${ms}ms)`)), ms);
+  });
+  const start = Date.now();
+  try {
+    const result = await Promise.race<T>([promise, timer]);
+    subtensorQueryDurationSeconds.observe({ query: label, outcome: 'success' }, (Date.now() - start) / 1000);
+    return result;
+  } catch (err) {
+    subtensorQueryDurationSeconds.observe({ query: label, outcome: 'failure' }, (Date.now() - start) / 1000);
+    throw err;
+  } finally {
+    clearTimeout(timeoutId!);
+  }
 }
 
 interface UidCacheEntry {

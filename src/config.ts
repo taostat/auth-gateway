@@ -119,6 +119,11 @@ export const config = {
 
   // Request limits
   jsonBodyLimitBytes: intEnv('JSON_BODY_LIMIT_BYTES', 65536),
+
+  // Metrics + event log
+  metricsPort: intEnv('METRICS_PORT', 3002),
+  enableEventLog: optionalEnv('ENABLE_EVENT_LOG', 'true') === 'true',
+  eventLogRetentionDays: intEnv('EVENT_LOG_RETENTION_DAYS', 30),
 };
 
 // Production safety checks

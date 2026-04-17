@@ -1,5 +1,7 @@
 import { AuthError } from '../util/errors';
 import { BoundedMap } from '../util/boundedMap';
+import { recordRateLimitHit } from '../metrics/registry';
+import { recordEvent } from '../db/events';
 
 interface RateWindow {
   count: number;
@@ -14,7 +16,7 @@ const counters = new BoundedMap<string, RateWindow>(10_000, (entry) => Date.now(
  * Check per-client rate limit. Throws 429 if the client has exceeded
  * their configured rate_limit within the current 1-minute window.
  */
-export function checkClientRateLimit(clientId: string, limit: number): void {
+export function checkClientRateLimit(clientId: string, limit: number, endpoint: string): void {
   if (limit <= 0) return; // 0 = unlimited
 
   const now = Date.now();
@@ -27,6 +29,13 @@ export function checkClientRateLimit(clientId: string, limit: number): void {
 
   existing.count++;
   if (existing.count > limit) {
+    recordRateLimitHit({ client_id: clientId, endpoint });
+    recordEvent({
+      client_id: clientId,
+      event_type: 'rate_limit_hit',
+      outcome: 'failure',
+      metadata: { endpoint },
+    }).catch(() => {});
     throw new AuthError('Rate limit exceeded for this client', 429, 'Too Many Requests');
   }
 }

@@ -1,3 +1,7 @@
+jest.mock('../../db/events', () => ({
+  recordEvent: jest.fn().mockResolvedValue(undefined),
+}));
+
 import { checkClientRateLimit, clearRateLimitCounters } from '../../middleware/clientRateLimit';
 import { BoundedMap } from '../../util/boundedMap';
 
@@ -7,51 +11,51 @@ beforeEach(() => {
 
 describe('Client Rate Limit', () => {
   test('allows requests within limit', () => {
-    expect(() => checkClientRateLimit('client-a', 5)).not.toThrow();
-    expect(() => checkClientRateLimit('client-a', 5)).not.toThrow();
-    expect(() => checkClientRateLimit('client-a', 5)).not.toThrow();
+    expect(() => checkClientRateLimit('client-a', 5, 'token')).not.toThrow();
+    expect(() => checkClientRateLimit('client-a', 5, 'token')).not.toThrow();
+    expect(() => checkClientRateLimit('client-a', 5, 'token')).not.toThrow();
   });
 
   test('throws 429 when limit exceeded', () => {
     for (let i = 0; i < 3; i++) {
-      checkClientRateLimit('client-b', 3);
+      checkClientRateLimit('client-b', 3, 'token');
     }
-    expect(() => checkClientRateLimit('client-b', 3)).toThrow('Rate limit exceeded');
+    expect(() => checkClientRateLimit('client-b', 3, 'token')).toThrow('Rate limit exceeded');
   });
 
   test('different clients have separate counters', () => {
     for (let i = 0; i < 3; i++) {
-      checkClientRateLimit('client-c', 3);
+      checkClientRateLimit('client-c', 3, 'token');
     }
     // client-d should still be allowed
-    expect(() => checkClientRateLimit('client-d', 3)).not.toThrow();
+    expect(() => checkClientRateLimit('client-d', 3, 'token')).not.toThrow();
   });
 
   test('counter resets after window expires', () => {
     for (let i = 0; i < 3; i++) {
-      checkClientRateLimit('client-e', 3);
+      checkClientRateLimit('client-e', 3, 'token');
     }
-    expect(() => checkClientRateLimit('client-e', 3)).toThrow('Rate limit exceeded');
+    expect(() => checkClientRateLimit('client-e', 3, 'token')).toThrow('Rate limit exceeded');
 
     // Simulate window expiry
     const original = Date.now;
     Date.now = () => original() + 61_000; // 61 seconds later
 
-    expect(() => checkClientRateLimit('client-e', 3)).not.toThrow();
+    expect(() => checkClientRateLimit('client-e', 3, 'token')).not.toThrow();
 
     Date.now = original;
   });
 
   test('limit of 0 means unlimited', () => {
     for (let i = 0; i < 100; i++) {
-      expect(() => checkClientRateLimit('client-f', 0)).not.toThrow();
+      expect(() => checkClientRateLimit('client-f', 0, 'token')).not.toThrow();
     }
   });
 
   test('error has correct status code', () => {
     try {
       for (let i = 0; i <= 1; i++) {
-        checkClientRateLimit('client-g', 1);
+        checkClientRateLimit('client-g', 1, 'token');
       }
       fail('Should have thrown');
     } catch (err: any) {

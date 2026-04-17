@@ -3,11 +3,14 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { config } from '../config';
 import { createClient, listClients, deactivateClient, updateClient, rotateClientSecret, getClientById, UpdateClientFields } from '../db/clients';
-import { AdminAuthError, AuthError } from '../util/errors';
+import { AdminAuthError, AuthError, OAuthErrorCode } from '../util/errors';
 import { validateScopeFormat } from '../scopes';
 import { CreateClientBodySchema, UpdateClientBodySchema, ClientIdParamsSchema } from '../schemas/admin';
+import { StatsQuerySchema, OverviewQuerySchema, EventsQuerySchema } from '../schemas/stats';
 import { ErrorResponseSchema } from '../schemas/responses';
 import { normalizeAllowedOrigins } from '../middleware/origin';
+import { getClientStats, listClientEvents, getOverview } from '../db/eventStats';
+import { recordAdminApiRequest } from '../metrics/registry';
 
 function requireAdmin(request: FastifyRequest): void {
   const key = request.headers['x-admin-api-key'] as string | undefined;
@@ -20,6 +23,8 @@ function requireAdmin(request: FastifyRequest): void {
     throw new AdminAuthError();
   }
 }
+
+const GRANTS_REQUIRING_CALLBACK = ['authorization_code'];
 
 function validateRedirectUri(uri: string): void {
   let parsed: URL;
@@ -48,6 +53,11 @@ function validateRedirectUri(uri: string): void {
 }
 
 export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
+  fastify.addHook('onResponse', async (request, reply) => {
+    const outcome = reply.statusCode < 400 ? 'success' : 'failure';
+    recordAdminApiRequest({ endpoint: request.routeOptions?.url ?? 'unmatched', outcome });
+  });
+
   // POST /v1/admin/clients — register a new OAuth client
   fastify.post(
     '/v1/admin/clients',
@@ -79,9 +89,8 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
         rate_limit,
       } = request.body;
 
-      const CALLBACK_GRANTS = new Set(['authorization_code']);
       const effectiveGrantTypes = grant_types ?? ['authorization_code'];
-      const needsCallback = effectiveGrantTypes.some((g) => CALLBACK_GRANTS.has(g));
+      const needsCallback = effectiveGrantTypes.some((g) => GRANTS_REQUIRING_CALLBACK.includes(g));
       const normalizedAllowedOrigins = normalizeAllowedOrigins(allowed_origins);
 
       if (needsCallback && (!Array.isArray(redirect_uris) || redirect_uris.length === 0)) {
@@ -233,7 +242,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
       // Validate grant_types vs redirect_uris (both directions)
       const effectiveGrants = body.grant_types ?? existing?.grant_types ?? [];
       const effectiveUris = body.redirect_uris ?? existing?.redirect_uris ?? [];
-      const needsCallback = effectiveGrants.some((g) => g === 'authorization_code');
+      const needsCallback = effectiveGrants.some((g) => GRANTS_REQUIRING_CALLBACK.includes(g));
       if (needsCallback && effectiveUris.length === 0) {
         throw new AuthError(
           'redirect_uris required when authorization_code grant is enabled',
@@ -359,6 +368,144 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       return reply.code(200).send({ status: 'deactivated', client_id });
+    },
+  );
+
+  // GET /v1/admin/clients/:client_id/stats
+  fastify.get(
+    '/v1/admin/clients/:client_id/stats',
+    {
+      schema: {
+        tags: ['Admin'],
+        summary: 'Client usage stats over a time window',
+        security: [{ adminApiKey: [] }],
+        params: ClientIdParamsSchema,
+        querystring: StatsQuerySchema,
+        response: { 404: ErrorResponseSchema },
+      },
+    },
+    async (
+      request: FastifyRequest<{
+        Params: z.infer<typeof ClientIdParamsSchema>;
+        Querystring: z.infer<typeof StatsQuerySchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      requireAdmin(request);
+
+      const { client_id } = request.params;
+      const window = request.query.window;
+
+      const client = await getClientById(client_id);
+      if (!client) {
+        throw new AuthError('Client not found', 404, 'Not Found');
+      }
+
+      const stats = await getClientStats(client_id, window);
+      const successRate =
+        stats.totals.exchanges === 0 ? 0 : stats.totals.successes / stats.totals.exchanges;
+
+      return reply.code(200).send({
+        client_id,
+        window,
+        generated_at: new Date().toISOString(),
+        totals: {
+          ...stats.totals,
+          success_rate: successRate,
+        },
+        failures_by_reason: stats.failures_by_reason,
+        scopes_requested: stats.scopes_requested,
+        timeseries: stats.timeseries,
+      });
+    },
+  );
+
+  // GET /v1/admin/clients/:client_id/events
+  fastify.get(
+    '/v1/admin/clients/:client_id/events',
+    {
+      schema: {
+        tags: ['Admin'],
+        summary: 'Recent events for a client (cursor paginated)',
+        security: [{ adminApiKey: [] }],
+        params: ClientIdParamsSchema,
+        querystring: EventsQuerySchema,
+        response: { 404: ErrorResponseSchema },
+      },
+    },
+    async (
+      request: FastifyRequest<{
+        Params: z.infer<typeof ClientIdParamsSchema>;
+        Querystring: z.infer<typeof EventsQuerySchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      requireAdmin(request);
+
+      const { client_id } = request.params;
+      const { limit, before } = request.query;
+
+      const client = await getClientById(client_id);
+      if (!client) {
+        throw new AuthError('Client not found', 404, 'Not Found');
+      }
+
+      let beforeCursor: { occurred_at: Date; id: string } | undefined;
+      if (before) {
+        const sep = before.lastIndexOf('|');
+        if (sep <= 0) {
+          throw new AuthError('Invalid cursor', 400, OAuthErrorCode.INVALID_REQUEST);
+        }
+        const occurredAt = new Date(before.slice(0, sep));
+        const id = before.slice(sep + 1);
+        if (Number.isNaN(occurredAt.getTime())) {
+          throw new AuthError('Invalid before cursor', 400, 'Bad Request');
+        }
+        beforeCursor = { occurred_at: occurredAt, id };
+      }
+      const events = await listClientEvents(client_id, { limit: limit + 1, before: beforeCursor });
+
+      const hasMore = events.length > limit;
+      const page = hasMore ? events.slice(0, limit) : events;
+      const last = page[page.length - 1];
+      const nextCursor = hasMore && last ? `${last.occurred_at}|${last.id}` : null;
+
+      return reply.code(200).send({
+        events: page,
+        has_more: hasMore,
+        next_cursor: nextCursor,
+      });
+    },
+  );
+
+  // GET /v1/admin/stats/overview
+  fastify.get(
+    '/v1/admin/stats/overview',
+    {
+      schema: {
+        tags: ['Admin'],
+        summary: 'Overall stats across clients',
+        security: [{ adminApiKey: [] }],
+        querystring: OverviewQuerySchema,
+      },
+    },
+    async (
+      request: FastifyRequest<{
+        Querystring: z.infer<typeof OverviewQuerySchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      requireAdmin(request);
+
+      const window = request.query.window;
+      const { totals, by_client } = await getOverview(window);
+
+      return reply.code(200).send({
+        window,
+        generated_at: new Date().toISOString(),
+        totals,
+        by_client,
+      });
     },
   );
 }

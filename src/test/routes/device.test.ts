@@ -43,6 +43,7 @@ import { FastifyInstance } from 'fastify';
 import { browserPost, buildTestApp } from '../helpers/app';
 import { getAliceAddress, signWithAlice } from '../helpers/sign';
 import { getDeviceCode, denyDeviceCode } from '../../db/deviceCodes';
+import { register, tokenExchangesTotal, deviceCodeFlowTotal } from '../../metrics/registry';
 let app: FastifyInstance;
 
 beforeAll(async () => {
@@ -424,6 +425,88 @@ describe('Device Code Routes', () => {
         },
       });
       expect(res.statusCode).toBe(200);
+    });
+  });
+
+  describe('device-code polling metrics', () => {
+    beforeEach(() => {
+      register.resetMetrics();
+    });
+
+    test('authorization_pending does not increment token_exchanges_total failure', async () => {
+      const codeRes = await requestConfidentialDeviceCode();
+      const { device_code } = JSON.parse(codeRes.payload);
+
+      const tokenRes = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          device_code,
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+        },
+      });
+      expect(tokenRes.statusCode).toBe(400);
+      expect(JSON.parse(tokenRes.payload).error).toBe('authorization_pending');
+
+      const exchangeMetric = await tokenExchangesTotal.get();
+      const failureValues = exchangeMetric.values.filter((v) => v.labels['outcome'] === 'failure');
+      const failureCount = failureValues.reduce((sum, v) => sum + v.value, 0);
+      expect(failureCount).toBe(0);
+
+      const deviceMetric = await deviceCodeFlowTotal.get();
+      const polledPending = deviceMetric.values.filter(
+        (v) => v.labels['stage'] === 'polled' && v.labels['outcome'] === 'pending',
+      );
+      const pendingCount = polledPending.reduce((sum, v) => sum + v.value, 0);
+      expect(pendingCount).toBeGreaterThanOrEqual(1);
+    });
+
+    test('slow_down does not increment token_exchanges_total failure', async () => {
+      const codeRes = await requestConfidentialDeviceCode();
+      const { device_code } = JSON.parse(codeRes.payload);
+
+      // First poll — authorization_pending
+      await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          device_code,
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+        },
+      });
+
+      // Reset metrics after first poll so we can isolate the slow_down
+      register.resetMetrics();
+
+      // Second poll immediately — slow_down
+      const secondPoll = await app.inject({
+        method: 'POST',
+        url: '/v1/oauth/token',
+        payload: {
+          device_code,
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+          client_id: TEST_CLIENT_ID,
+          client_secret: TEST_CLIENT_SECRET,
+        },
+      });
+      expect(secondPoll.statusCode).toBe(400);
+      expect(JSON.parse(secondPoll.payload).error).toBe('slow_down');
+
+      const exchangeMetric = await tokenExchangesTotal.get();
+      const failureValues = exchangeMetric.values.filter((v) => v.labels['outcome'] === 'failure');
+      const failureCount = failureValues.reduce((sum, v) => sum + v.value, 0);
+      expect(failureCount).toBe(0);
+
+      const deviceMetric = await deviceCodeFlowTotal.get();
+      const polledFailure = deviceMetric.values.filter(
+        (v) => v.labels['stage'] === 'polled' && v.labels['outcome'] === 'failure',
+      );
+      const polledFailureCount = polledFailure.reduce((sum, v) => sum + v.value, 0);
+      expect(polledFailureCount).toBeGreaterThanOrEqual(1);
     });
   });
 });

@@ -2,6 +2,7 @@ import { randomBytes, scrypt as scryptCb, timingSafeEqual } from 'crypto';
 import { getPool } from './pool';
 import { OAuthClient } from '../types';
 import { BoundedMap } from '../util/boundedMap';
+import { scryptVerifyDurationSeconds } from '../metrics/registry';
 
 const invalidStoredOriginsWarned = new Set<string>();
 
@@ -277,7 +278,10 @@ export async function deactivateClient(clientId: string): Promise<boolean> {
 
 export async function verifyClientSecret(client: OAuthClient, secret: string): Promise<boolean> {
   if (!client.client_secret_hash) return false;
-  return verifyScryptSecret(secret, client.client_secret_hash);
+  const start = Date.now();
+  const result = await verifyScryptSecret(secret, client.client_secret_hash);
+  scryptVerifyDurationSeconds.observe((Date.now() - start) / 1000);
+  return result;
 }
 
 /** Get all allowed origins from all active clients (for CORS). Cached for 60s. */
