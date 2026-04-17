@@ -3,6 +3,11 @@ import { config } from '../config';
 import { BoundedMap } from '../util/boundedMap';
 import { subtensorQueryDurationSeconds } from '../metrics/registry';
 
+function stripArgs(label: string): string {
+  const idx = label.indexOf('(');
+  return idx === -1 ? label : label.slice(0, idx);
+}
+
 async function withTimeout<T>(promise: Promise<T>, label: string, ms: number = config.subtensorQueryTimeout): Promise<T> {
   let timeoutId: NodeJS.Timeout;
   const timer = new Promise<never>((_, reject) => {
@@ -11,10 +16,12 @@ async function withTimeout<T>(promise: Promise<T>, label: string, ms: number = c
   const start = Date.now();
   try {
     const result = await Promise.race<T>([promise, timer]);
-    subtensorQueryDurationSeconds.observe({ query: label, outcome: 'success' }, (Date.now() - start) / 1000);
+    const metricLabel = stripArgs(label);
+    subtensorQueryDurationSeconds.observe({ query: metricLabel, outcome: 'success' }, (Date.now() - start) / 1000);
     return result;
   } catch (err) {
-    subtensorQueryDurationSeconds.observe({ query: label, outcome: 'failure' }, (Date.now() - start) / 1000);
+    const metricLabel = stripArgs(label);
+    subtensorQueryDurationSeconds.observe({ query: metricLabel, outcome: 'failure' }, (Date.now() - start) / 1000);
     throw err;
   } finally {
     clearTimeout(timeoutId!);
