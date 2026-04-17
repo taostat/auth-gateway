@@ -17,6 +17,7 @@ import { ChallengeBodySchema, VerifyBodySchema } from '../schemas/auth';
 import { ChallengeResponseSchema, TokenResponseSchema } from '../schemas/responses';
 import { ChallengeResponse, TokenResponse } from '../types';
 import { getAccessTokenExpiry } from './oauth/shared';
+import { recordChallenge } from '../metrics/registry';
 
 export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /v1/auth/challenge
@@ -45,9 +46,11 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       const { address: rawAddress, scopes = [] } = request.body;
 
       let address = rawAddress;
+      let signMethod: 'sr25519' | 'evm' | undefined;
       if (address) {
         const result = validateAndNormalizeAddress(address);
         address = result.address;
+        signMethod = result.method;
         validateScopesForSignMethod(scopes, result.method);
       }
 
@@ -56,6 +59,8 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const challenge = await createChallenge(address || null, scopes, { flowType: 'auth' });
+
+      recordChallenge({ sign_method: signMethod ?? 'unknown', outcome: 'issued' });
 
       const response: ChallengeResponse = {
         nonce: challenge.nonce,
@@ -91,7 +96,16 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     ) => {
       const { nonce, address: rawAddress, signature } = request.body;
 
-      const { address, method } = validateAndNormalizeAddress(rawAddress);
+      let address: string;
+      let method: 'sr25519' | 'evm';
+      try {
+        const normalized = validateAndNormalizeAddress(rawAddress);
+        address = normalized.address;
+        method = normalized.method;
+      } catch (err) {
+        recordChallenge({ sign_method: 'unknown', outcome: 'failure' });
+        throw err;
+      }
 
       // Consume challenge (single-use, throws if expired/missing)
       const challenge = await consumeChallenge(nonce);
@@ -106,7 +120,12 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       // Verify signature (method-aware)
-      await verifySignatureOrThrow(nonce, signature, address, method);
+      try {
+        await verifySignatureOrThrow(nonce, signature, address, method);
+      } catch (sigErr) {
+        recordChallenge({ sign_method: method, outcome: 'failure' });
+        throw sigErr;
+      }
 
       // Enforce scope-method compatibility (always, not just at challenge time)
       const isEvm = method === 'evm';
@@ -135,6 +154,8 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         expires_in: accessExpiry,
         scope: challenge.scopes.join(' '),
       };
+
+      recordChallenge({ sign_method: method, outcome: 'verified' });
 
       return reply.code(200).send(response);
     },

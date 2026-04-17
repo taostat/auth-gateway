@@ -1,9 +1,130 @@
-import { OAuthClient, RefreshTokenRecord } from '../../types';
+import { createHash, randomUUID } from 'node:crypto';
+import { OAuthClient, RefreshTokenRecord, Window } from '../../types';
 
 // In-memory mock stores
 const clients = new Map<string, OAuthClient>();
 const refreshTokens = new Map<string, RefreshTokenRecord>();
 const lockedDeviceCodes = new Set<string>();
+
+interface StoredOAuthEvent {
+  id: string;
+  occurred_at: Date;
+  client_id: string;
+  event_type: string;
+  outcome: string;
+  error_reason: string | null;
+  subject_hash: Buffer | null;
+  sign_method: string | null;
+  scopes: string[];
+  metadata: Record<string, unknown>;
+}
+
+interface StoredHourly {
+  client_id: string;
+  hour_bucket: Date;
+  event_type: string;
+  outcome: string;
+  count: number;
+  distinct_subjects: number;
+}
+
+const oauthEvents: StoredOAuthEvent[] = [];
+const oauthEventsHourly = new Map<string, StoredHourly>();
+
+const EXCHANGE_TYPES = new Set(['token_exchange', 'token_refresh']);
+
+function totalsFromEvents(events: StoredOAuthEvent[]): {
+  exchanges: number;
+  successes: number;
+  failures: number;
+  distinct_users: number;
+} {
+  const subjects = new Set<string>();
+  let successes = 0;
+  let failures = 0;
+  for (const e of events) {
+    if (e.outcome === 'success') successes++;
+    else if (e.outcome === 'failure') failures++;
+    if (e.subject_hash) subjects.add(e.subject_hash.toString('hex'));
+  }
+  return {
+    exchanges: events.length,
+    successes,
+    failures,
+    distinct_users: subjects.size,
+  };
+}
+
+function hourlyKey(r: { client_id: string; hour_bucket: Date; event_type: string; outcome: string }): string {
+  return `${r.client_id}|${r.hour_bucket.toISOString()}|${r.event_type}|${r.outcome}`;
+}
+
+function windowMs(window: Window): number {
+  switch (window) {
+    case '24h':
+      return 24 * 60 * 60 * 1000;
+    case '7d':
+      return 7 * 24 * 60 * 60 * 1000;
+    case '30d':
+      return 30 * 24 * 60 * 60 * 1000;
+  }
+}
+
+function truncToHour(d: Date): Date {
+  const out = new Date(d);
+  out.setMinutes(0, 0, 0);
+  return out;
+}
+
+function truncToDay(d: Date): Date {
+  const out = new Date(d);
+  out.setUTCHours(0, 0, 0, 0);
+  return out;
+}
+
+export function addTestOAuthEvent(input: {
+  client_id: string;
+  event_type: string;
+  outcome: string;
+  error_reason?: string | null;
+  subject?: string | null;
+  sign_method?: string | null;
+  scopes?: string[];
+  metadata?: Record<string, unknown>;
+  occurred_at?: Date;
+}): StoredOAuthEvent {
+  const ev: StoredOAuthEvent = {
+    id: randomUUID(),
+    occurred_at: input.occurred_at ?? new Date(),
+    client_id: input.client_id,
+    event_type: input.event_type,
+    outcome: input.outcome,
+    error_reason: input.error_reason ?? null,
+    subject_hash: input.subject ? createHash('sha256').update(input.subject).digest() : null,
+    sign_method: input.sign_method ?? null,
+    scopes: input.scopes ?? [],
+    metadata: input.metadata ?? {},
+  };
+  oauthEvents.push(ev);
+  return ev;
+}
+
+export function addTestHourlyBucket(r: StoredHourly): void {
+  oauthEventsHourly.set(hourlyKey(r), r);
+}
+
+export function clearTestOAuthEvents(): void {
+  oauthEvents.length = 0;
+  oauthEventsHourly.clear();
+}
+
+export function listTestOAuthEvents(): StoredOAuthEvent[] {
+  return [...oauthEvents];
+}
+
+export function listTestHourlyBuckets(): StoredHourly[] {
+  return Array.from(oauthEventsHourly.values());
+}
 const challenges = new Map<
   string,
   {
@@ -511,6 +632,250 @@ export function setupMockDb(): void {
   jest.mock('../../db/migrate', () => ({
     runMigrations: jest.fn().mockResolvedValue(undefined),
   }));
+
+  // Mock db/events
+  jest.mock('../../db/events', () => {
+    const { config: cfg } = require('../../config');
+    return {
+      recordEvent: jest.fn().mockImplementation(async (input: Record<string, unknown>) => {
+        if (!cfg.enableEventLog) return;
+        addTestOAuthEvent({
+          client_id: input['client_id'] as string,
+          event_type: input['event_type'] as string,
+          outcome: input['outcome'] as string,
+          error_reason: (input['error_reason'] as string | null | undefined) ?? null,
+          subject: (input['subject'] as string | null | undefined) ?? null,
+          sign_method: (input['sign_method'] as string | null | undefined) ?? null,
+          scopes: (input['scopes'] as string[] | undefined) ?? [],
+          metadata: (input['metadata'] as Record<string, unknown> | undefined) ?? {},
+        });
+      }),
+      rollupHourRange: jest.fn().mockImplementation(async (hourStart: Date, hourEnd: Date) => {
+        const buckets = new Map<string, { count: number; subjects: Set<string> }>();
+        for (const ev of oauthEvents) {
+          if (ev.occurred_at >= hourStart && ev.occurred_at < hourEnd) {
+            const bucket = truncToHour(ev.occurred_at);
+            const key = `${ev.client_id}|${bucket.toISOString()}|${ev.event_type}|${ev.outcome}`;
+            let cur = buckets.get(key);
+            if (!cur) {
+              cur = { count: 0, subjects: new Set() };
+              buckets.set(key, cur);
+            }
+            cur.count++;
+            if (ev.subject_hash) cur.subjects.add(ev.subject_hash.toString('hex'));
+          }
+        }
+        for (const [key, val] of buckets) {
+          const [client_id, iso, event_type, outcome] = key.split('|');
+          addTestHourlyBucket({
+            client_id: client_id!,
+            hour_bucket: new Date(iso!),
+            event_type: event_type!,
+            outcome: outcome!,
+            count: val.count,
+            distinct_subjects: val.subjects.size,
+          });
+        }
+      }),
+      rollupPreviousHour: jest.fn().mockImplementation(async (now: Date = new Date()) => {
+        const hourEnd = truncToHour(now);
+        const hourStart = new Date(hourEnd.getTime() - 60 * 60 * 1000);
+        const { rollupHourRange: mockRollup } = require('../../db/events');
+        await mockRollup(hourStart, hourEnd);
+      }),
+      backfillMissingRollups: jest.fn().mockImplementation(async () => {
+        const now = new Date();
+        const currentHour = truncToHour(now);
+        const missingKeys = new Set<string>();
+        for (const ev of oauthEvents) {
+          if (ev.occurred_at < currentHour) {
+            const bucket = truncToHour(ev.occurred_at);
+            const key = hourlyKey({
+              client_id: ev.client_id,
+              hour_bucket: bucket,
+              event_type: ev.event_type,
+              outcome: ev.outcome,
+            });
+            if (!oauthEventsHourly.has(key)) {
+              missingKeys.add(bucket.toISOString());
+            }
+          }
+        }
+        const { rollupHourRange: mockRollup } = require('../../db/events');
+        for (const iso of missingKeys) {
+          const hourStart = new Date(iso);
+          const hourEnd = new Date(hourStart.getTime() + 60 * 60 * 1000);
+          await mockRollup(hourStart, hourEnd);
+        }
+      }),
+      cleanupOldEvents: jest.fn().mockImplementation(async (retentionDays: number) => {
+        const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+        for (let i = oauthEvents.length - 1; i >= 0; i--) {
+          const ev = oauthEvents[i]!;
+          if (ev.occurred_at.getTime() < cutoff) {
+            const bucket = truncToHour(ev.occurred_at);
+            const key = hourlyKey({
+              client_id: ev.client_id,
+              hour_bucket: bucket,
+              event_type: ev.event_type,
+              outcome: ev.outcome,
+            });
+            if (oauthEventsHourly.has(key)) {
+              oauthEvents.splice(i, 1);
+            }
+          }
+        }
+      }),
+      startEventLogRollup: jest.fn(),
+      stopEventLogRollup: jest.fn(),
+      waitForEventLogRollup: jest.fn().mockResolvedValue(undefined),
+      startEventLogCleanup: jest.fn(),
+      stopEventLogCleanup: jest.fn(),
+      waitForEventLogCleanup: jest.fn().mockResolvedValue(undefined),
+    };
+  });
+
+  // Mock db/eventStats
+  jest.mock('../../db/eventStats', () => {
+    const exchangesIn = (clientId: string, window: Window): StoredOAuthEvent[] => {
+      const cutoff = Date.now() - windowMs(window);
+      return oauthEvents.filter(
+        (e) =>
+          e.client_id === clientId && EXCHANGE_TYPES.has(e.event_type) && e.occurred_at.getTime() >= cutoff,
+      );
+    };
+
+    return {
+      getClientStats: jest.fn().mockImplementation(async (clientId: string, window: Window) => {
+        const events = exchangesIn(clientId, window);
+        const totals = totalsFromEvents(events);
+
+        const failures_by_reason: Record<string, number> = {};
+        for (const e of events) {
+          if (e.outcome === 'failure') {
+            const reason = e.error_reason ?? 'unknown';
+            failures_by_reason[reason] = (failures_by_reason[reason] ?? 0) + 1;
+          }
+        }
+
+        const scopeCutoff = Date.now() - windowMs(window);
+        const scopeCounts = new Map<string, number>();
+        for (const e of oauthEvents) {
+          if (
+            e.client_id === clientId &&
+            e.event_type === 'authorize' &&
+            e.outcome === 'success' &&
+            e.occurred_at.getTime() >= scopeCutoff
+          ) {
+            for (const s of e.scopes) {
+              scopeCounts.set(s, (scopeCounts.get(s) ?? 0) + 1);
+            }
+          }
+        }
+        const scopes_requested = Array.from(scopeCounts.entries())
+          .map(([scope, count]) => ({ scope, count }))
+          .toSorted((a, b) => b.count - a.count);
+
+        const groupBy = window === '30d' ? truncToDay : truncToHour;
+        const tsMap = new Map<
+          string,
+          { bucket: Date; exchanges: number; successes: number; failures: number; subjects: Set<string> }
+        >();
+        for (const e of events) {
+          const bucket = groupBy(e.occurred_at);
+          const key = bucket.toISOString();
+          let cur = tsMap.get(key);
+          if (!cur) {
+            cur = { bucket, exchanges: 0, successes: 0, failures: 0, subjects: new Set() };
+            tsMap.set(key, cur);
+          }
+          cur.exchanges++;
+          if (e.outcome === 'success') cur.successes++;
+          else if (e.outcome === 'failure') cur.failures++;
+          if (e.subject_hash) cur.subjects.add(e.subject_hash.toString('hex'));
+        }
+        const timeseries = Array.from(tsMap.values())
+          .toSorted((a, b) => a.bucket.getTime() - b.bucket.getTime())
+          .map((b) => ({
+            bucket: b.bucket.toISOString(),
+            exchanges: b.exchanges,
+            successes: b.successes,
+            failures: b.failures,
+            distinct_users: b.subjects.size,
+          }));
+
+        return { totals, failures_by_reason, scopes_requested, timeseries };
+      }),
+      listClientEvents: jest
+        .fn()
+        .mockImplementation(
+          async (
+            clientId: string,
+            opts: { limit: number; before?: { occurred_at: Date; id: string } | undefined },
+          ) => {
+            let filtered = oauthEvents.filter((e) => e.client_id === clientId);
+            if (opts.before) {
+              const b = opts.before;
+              filtered = filtered.filter(
+                (e) =>
+                  e.occurred_at.getTime() < b.occurred_at.getTime() ||
+                  (e.occurred_at.getTime() === b.occurred_at.getTime() && e.id < b.id),
+              );
+            }
+            filtered = filtered.toSorted((a, b) => {
+              const delta = b.occurred_at.getTime() - a.occurred_at.getTime();
+              if (delta !== 0) return delta;
+              return b.id.localeCompare(a.id);
+            });
+            return filtered.slice(0, opts.limit).map((e) => ({
+              id: e.id,
+              occurred_at: e.occurred_at.toISOString(),
+              event_type: e.event_type,
+              outcome: e.outcome,
+              error_reason: e.error_reason,
+              sign_method: e.sign_method,
+              scopes: e.scopes,
+              subject_prefix: e.subject_hash ? e.subject_hash.toString('hex').slice(0, 16) : null,
+              metadata: e.metadata,
+            }));
+          },
+        ),
+      getOverview: jest.fn().mockImplementation(async (window: Window) => {
+        const cutoff = Date.now() - windowMs(window);
+        const by_client = Array.from(clients.values()).map((c) => {
+          const events = exchangesIn(c.client_id, window);
+          const t = totalsFromEvents(events);
+          return {
+            client_id: c.client_id,
+            client_name: c.client_name,
+            client_type: c.client_type,
+            active: c.active,
+            exchanges: t.exchanges,
+            successes: t.successes,
+            failures: t.failures,
+            distinct_users: t.distinct_users,
+          };
+        });
+        const by_client_sorted = by_client.toSorted(
+          (a, b) => b.exchanges - a.exchanges || a.client_id.localeCompare(b.client_id),
+        );
+        // Global distinct users: deduplicate across all clients
+        const globalSubjects = new Set<string>();
+        for (const e of oauthEvents) {
+          if (EXCHANGE_TYPES.has(e.event_type) && e.occurred_at.getTime() >= cutoff && e.subject_hash) {
+            globalSubjects.add(e.subject_hash.toString('hex'));
+          }
+        }
+        const totals = {
+          exchanges: by_client_sorted.reduce((s, c) => s + c.exchanges, 0),
+          successes: by_client_sorted.reduce((s, c) => s + c.successes, 0),
+          failures: by_client_sorted.reduce((s, c) => s + c.failures, 0),
+          distinct_users: globalSubjects.size,
+        };
+        return { totals, by_client: by_client_sorted };
+      }),
+    };
+  });
 }
 
 export function clearTestAuthorizeSessions(): void {

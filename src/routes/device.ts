@@ -45,6 +45,8 @@ import {
   DeviceConfirmBodySchema,
 } from '../schemas/device';
 import { DeviceCodeResponseSchema } from '../schemas/responses';
+import { recordDeviceCodeStage, recordChallenge } from '../metrics/registry';
+import { recordEvent } from '../db/events';
 
 let cleanupInterval: NodeJS.Timeout | null = null;
 let cleanupPromise: Promise<void> | null = null;
@@ -153,6 +155,14 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
 
       const expiresAt = new Date(Date.now() + config.deviceCodeTtlSeconds * 1000);
       const { deviceCode, userCode } = await createUniqueDeviceCodeRecord(client.client_id, scopes, expiresAt);
+
+      recordDeviceCodeStage({ client_id: client.client_id, stage: 'issued', outcome: 'success' });
+      recordEvent({
+        client_id: client.client_id,
+        event_type: 'device_code_issued',
+        outcome: 'success',
+        scopes,
+      }).catch(() => {});
 
       const response: DeviceCodeResponse = {
         device_code: deviceCode,
@@ -629,6 +639,16 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
         userCode: user_code,
       });
 
+      recordChallenge({ sign_method: clientMethod, outcome: 'issued' });
+      recordEvent({
+        client_id: found.clientId,
+        event_type: 'challenge_issued',
+        outcome: 'success',
+        sign_method: clientMethod,
+        scopes: found.scopes,
+        metadata: { flow: 'device' },
+      }).catch(() => {});
+
       return reply.code(200).send({ nonce: challenge.nonce });
     },
   );
@@ -688,7 +708,20 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
         throw new AuthError('Address mismatch', 401, 'Unauthorized');
       }
 
-      await verifySignatureOrThrow(nonce, signature, address, method);
+      try {
+        await verifySignatureOrThrow(nonce, signature, address, method);
+      } catch (sigErr) {
+        recordChallenge({ sign_method: method, outcome: 'failure' });
+        recordEvent({
+          client_id: found.clientId,
+          event_type: 'challenge_verified',
+          outcome: 'failure',
+          sign_method: method,
+          error_reason: 'signature_invalid',
+          metadata: { flow: 'device' },
+        }).catch(() => {});
+        throw sigErr;
+      }
 
       // Resolve signer context and verify scopes (skip for EVM)
       const isEvm = method === 'evm';
@@ -704,6 +737,25 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
       if (!approved) {
         throw new DeviceCodeError('Device code expired or already used', 409);
       }
+
+      recordChallenge({ sign_method: method, outcome: 'verified' });
+      recordEvent({
+        client_id: found.clientId,
+        event_type: 'challenge_verified',
+        outcome: 'success',
+        subject: address,
+        sign_method: method,
+        scopes: found.scopes,
+        metadata: { flow: 'device' },
+      }).catch(() => {});
+      recordEvent({
+        client_id: found.clientId,
+        event_type: 'device_code_approved',
+        outcome: 'success',
+        subject: address,
+        sign_method: method,
+        scopes: found.scopes,
+      }).catch(() => {});
 
       return reply.code(200).send({ status: 'approved' });
     },

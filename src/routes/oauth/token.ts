@@ -32,12 +32,29 @@ import { getEpochInfo } from './shared';
 import { TokenBodySchema } from '../../schemas/oauth';
 import { TokenResponseSchema } from '../../schemas/responses';
 import { enforceAllowedOriginForClient } from '../../middleware/origin';
+import { recordTokenExchange, recordRefreshRotation, recordDeviceCodeStage } from '../../metrics/registry';
+import { recordEvent } from '../../db/events';
+import { SignMethod } from '../../crypto/address';
 
 type TokenBody = z.infer<typeof TokenBodySchema>;
 type TokenClient = { client_id: string; rate_limit: number; grant_types: string[]; allowed_sign_methods: string[] };
+type TokenGrantType = 'authorization_code' | 'refresh_token' | 'urn:ietf:params:oauth:grant-type:device_code';
 
 function getErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : '';
+}
+
+function errorReasonFrom(err: unknown): string {
+  if (err instanceof AuthError) return err.error || 'error';
+  return 'internal_error';
+}
+
+function grantTypeToEventType(grant: string): 'token_exchange' | 'token_refresh' {
+  return grant === 'refresh_token' ? 'token_refresh' : 'token_exchange';
+}
+
+function clientSignMethodLabel(client: TokenClient): SignMethod {
+  return (client.allowed_sign_methods[0] as SignMethod) || 'sr25519';
 }
 
 function buildTokenResponse(
@@ -78,12 +95,17 @@ function buildTokenResponse(
   return response;
 }
 
+interface HandlerResult {
+  reply: FastifyReply;
+  subject: string;
+}
+
 async function handleAuthorizationCode(
   request: FastifyRequest<{ Body: TokenBody }>,
   reply: FastifyReply,
   client: TokenClient,
   pkceRequired: boolean,
-): Promise<FastifyReply> {
+): Promise<HandlerResult> {
   const { code, redirect_uri, code_verifier } = request.body;
 
   if (!code) {
@@ -197,7 +219,7 @@ async function handleAuthorizationCode(
     evm_address: evmAddress,
   });
 
-  return reply.code(200).send(
+  const sent = reply.code(200).send(
     buildTokenResponse(address, accessToken, refreshToken, scopes, accessExpiry, {
       client_id: client.client_id,
       hotkey,
@@ -207,13 +229,14 @@ async function handleAuthorizationCode(
       evm_address: evmAddress,
     }),
   );
+  return { reply: sent, subject: address };
 }
 
 async function handleRefreshToken(
   request: FastifyRequest<{ Body: TokenBody }>,
   reply: FastifyReply,
   client: TokenClient,
-): Promise<FastifyReply> {
+): Promise<HandlerResult> {
   const { refresh_token } = request.body;
 
   if (!refresh_token) {
@@ -318,7 +341,7 @@ async function handleRefreshToken(
     evm_address: signerCtx.evmAddress,
   });
 
-  return reply.code(200).send(
+  const sent = reply.code(200).send(
     buildTokenResponse(address, accessToken, newRefreshToken, scopes, accessExpiry, {
       client_id: client.client_id,
       hotkey: signerCtx.hotkey,
@@ -327,13 +350,14 @@ async function handleRefreshToken(
       evm_address: signerCtx.evmAddress,
     }),
   );
+  return { reply: sent, subject: address };
 }
 
 async function handleDeviceCode(
   request: FastifyRequest<{ Body: TokenBody }>,
   reply: FastifyReply,
   client: TokenClient,
-): Promise<FastifyReply> {
+): Promise<HandlerResult> {
   const { device_code } = request.body;
 
   if (!device_code) {
@@ -356,6 +380,12 @@ async function handleDeviceCode(
       await deleteLockedDeviceCode(redemptionClient, device_code);
       redemptionSettled = true;
       await commitDeviceCodeRedemption(redemptionClient);
+      recordDeviceCodeStage({ client_id: client.client_id, stage: 'expired', outcome: 'failure' });
+      recordEvent({
+        client_id: client.client_id,
+        event_type: 'device_code_expired',
+        outcome: 'failure',
+      }).catch(() => {});
       throw new AuthError('Device code expired', 400, OAuthErrorCode.EXPIRED_TOKEN);
     }
 
@@ -363,6 +393,12 @@ async function handleDeviceCode(
       await deleteLockedDeviceCode(redemptionClient, device_code);
       redemptionSettled = true;
       await commitDeviceCodeRedemption(redemptionClient);
+      recordDeviceCodeStage({ client_id: client.client_id, stage: 'denied', outcome: 'failure' });
+      recordEvent({
+        client_id: client.client_id,
+        event_type: 'device_code_denied',
+        outcome: 'failure',
+      }).catch(() => {});
       throw new AuthError('Authorization denied', 400, OAuthErrorCode.ACCESS_DENIED);
     }
 
@@ -379,6 +415,11 @@ async function handleDeviceCode(
       await updateLockedDeviceCodeLastPolledAt(redemptionClient, device_code);
       redemptionSettled = true;
       await commitDeviceCodeRedemption(redemptionClient);
+      recordEvent({
+        client_id: client.client_id,
+        event_type: 'device_code_polled',
+        outcome: 'pending',
+      }).catch(() => {});
       throw new AuthorizationPendingError();
     }
 
@@ -442,7 +483,7 @@ async function handleDeviceCode(
     redemptionSettled = true;
     await commitDeviceCodeRedemption(redemptionClient);
 
-    return reply.code(200).send(
+    const sent = reply.code(200).send(
       buildTokenResponse(claimed.address!, accessToken, refreshToken, claimed.scopes, accessExpiry, {
         client_id: client.client_id,
         hotkey: signerCtx.hotkey,
@@ -451,6 +492,7 @@ async function handleDeviceCode(
         evm_address: signerCtx.evmAddress,
       }),
     );
+    return { reply: sent, subject: claimed.address! };
   } catch (err) {
     if (!redemptionSettled) {
       await rollbackDeviceCodeRedemption(redemptionClient);
@@ -486,7 +528,7 @@ export async function tokenRoutes(fastify: FastifyInstance): Promise<void> {
       const { grant_type } = request.body;
       const { client, pkceRequired } = await authenticateClient(request);
       enforceAllowedOriginForClient(request, client.allowed_origins);
-      checkClientRateLimit(client.client_id, client.rate_limit);
+      checkClientRateLimit(client.client_id, client.rate_limit, 'token');
 
       const allowedGrant =
         grant_type === 'urn:ietf:params:oauth:grant-type:device_code'
@@ -501,15 +543,73 @@ export async function tokenRoutes(fastify: FastifyInstance): Promise<void> {
         );
       }
 
-      switch (grant_type) {
-        case 'authorization_code':
-          return handleAuthorizationCode(request, reply, client, pkceRequired);
-        case 'refresh_token':
-          return handleRefreshToken(request, reply, client);
-        case 'urn:ietf:params:oauth:grant-type:device_code':
-          return handleDeviceCode(request, reply, client);
-        default:
-          throw new AuthError('Unsupported grant_type', 400, OAuthErrorCode.UNSUPPORTED_GRANT_TYPE);
+      const signMethod = clientSignMethodLabel(client);
+      const grantLabel = grant_type as TokenGrantType;
+      try {
+        let outcome: HandlerResult;
+        switch (grant_type) {
+          case 'authorization_code':
+            outcome = await handleAuthorizationCode(request, reply, client, pkceRequired);
+            break;
+          case 'refresh_token':
+            outcome = await handleRefreshToken(request, reply, client);
+            break;
+          case 'urn:ietf:params:oauth:grant-type:device_code':
+            outcome = await handleDeviceCode(request, reply, client);
+            break;
+          default:
+            throw new AuthError('Unsupported grant_type', 400, OAuthErrorCode.UNSUPPORTED_GRANT_TYPE);
+        }
+        recordTokenExchange({
+          client_id: client.client_id,
+          grant_type: grantLabel,
+          outcome: 'success',
+          sign_method: signMethod,
+        });
+        if (grant_type === 'refresh_token') {
+          recordRefreshRotation({ client_id: client.client_id, outcome: 'success' });
+        }
+        if (grant_type === 'urn:ietf:params:oauth:grant-type:device_code') {
+          recordDeviceCodeStage({ client_id: client.client_id, stage: 'approved', outcome: 'success' });
+        }
+        recordEvent({
+          client_id: client.client_id,
+          event_type: grantTypeToEventType(grant_type),
+          outcome: 'success',
+          sign_method: signMethod,
+          subject: outcome.subject,
+        }).catch(() => {});
+        return outcome.reply;
+      } catch (err) {
+        if (err instanceof AuthorizationPendingError) {
+          // Normal device-code polling state, not a failure
+          recordDeviceCodeStage({ client_id: client.client_id, stage: 'polled', outcome: 'pending' });
+          throw err;
+        }
+        if (err instanceof SlowDownError) {
+          // Client polling too fast — record as polled failure
+          recordDeviceCodeStage({ client_id: client.client_id, stage: 'polled', outcome: 'failure' });
+          throw err;
+        }
+        const reason = errorReasonFrom(err);
+        recordTokenExchange({
+          client_id: client.client_id,
+          grant_type: grantLabel,
+          outcome: 'failure',
+          error_reason: reason,
+          sign_method: signMethod,
+        });
+        if (grant_type === 'refresh_token') {
+          recordRefreshRotation({ client_id: client.client_id, outcome: 'failure', error_reason: reason });
+        }
+        recordEvent({
+          client_id: client.client_id,
+          event_type: grantTypeToEventType(grant_type),
+          outcome: 'failure',
+          error_reason: reason,
+          sign_method: signMethod,
+        }).catch(() => {});
+        throw err;
       }
     },
   );
@@ -539,9 +639,45 @@ export async function tokenRoutes(fastify: FastifyInstance): Promise<void> {
 
       const { client } = await authenticateClient(request);
       enforceAllowedOriginForClient(request, client.allowed_origins);
-      checkClientRateLimit(client.client_id, client.rate_limit);
+      checkClientRateLimit(client.client_id, client.rate_limit, 'token');
 
-      return handleRefreshToken(request, reply, client);
+      const signMethod = clientSignMethodLabel(client);
+      try {
+        const outcome = await handleRefreshToken(request, reply, client);
+        recordTokenExchange({
+          client_id: client.client_id,
+          grant_type: 'refresh_token',
+          outcome: 'success',
+          sign_method: signMethod,
+        });
+        recordRefreshRotation({ client_id: client.client_id, outcome: 'success' });
+        recordEvent({
+          client_id: client.client_id,
+          event_type: 'token_refresh',
+          outcome: 'success',
+          sign_method: signMethod,
+          subject: outcome.subject,
+        }).catch(() => {});
+        return outcome.reply;
+      } catch (err) {
+        const reason = errorReasonFrom(err);
+        recordTokenExchange({
+          client_id: client.client_id,
+          grant_type: 'refresh_token',
+          outcome: 'failure',
+          error_reason: reason,
+          sign_method: signMethod,
+        });
+        recordRefreshRotation({ client_id: client.client_id, outcome: 'failure', error_reason: reason });
+        recordEvent({
+          client_id: client.client_id,
+          event_type: 'token_refresh',
+          outcome: 'failure',
+          error_reason: reason,
+          sign_method: signMethod,
+        }).catch(() => {});
+        throw err;
+      }
     },
   );
 }

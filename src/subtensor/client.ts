@@ -1,5 +1,6 @@
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import { config } from '../config';
+import { setSubtensorConnected } from '../metrics/registry';
 
 let api: ApiPromise | null = null;
 let connectionPromise: Promise<ApiPromise> | null = null;
@@ -19,6 +20,7 @@ export async function getSubtensorApi(): Promise<ApiPromise> {
         console.warn('Subtensor WebSocket disconnected, will reconnect on next request');
         api = null;
         connectionPromise = null;
+        setSubtensorConnected(false);
       });
 
       api.on('error', (err: Error) => {
@@ -26,9 +28,11 @@ export async function getSubtensorApi(): Promise<ApiPromise> {
       });
 
       console.log('Connected to Subtensor at', config.subtensorWsUrl);
+      setSubtensorConnected(true);
       return api;
     } catch (err) {
       connectionPromise = null;
+      setSubtensorConnected(false);
       throw err;
     }
   })();
@@ -41,6 +45,7 @@ export async function disconnectSubtensor(): Promise<void> {
     await api.disconnect();
     api = null;
     connectionPromise = null;
+    setSubtensorConnected(false);
   }
 }
 

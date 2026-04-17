@@ -15,7 +15,7 @@ import { disconnectSubtensor, getSubtensorApi } from './subtensor/client';
 import { registerRoutes, registerAdminRoutes } from './routes';
 import { createErrorHandler } from './errorHandler';
 import { startAuthCodeCleanup, stopAuthCodeCleanup, waitForAuthCodeCleanup } from './crypto/authCodeTracker';
-import { getPool, disconnectDb } from './db/pool';
+import { getPool, getPoolStats, disconnectDb } from './db/pool';
 import { runMigrations } from './db/migrate';
 import { getAllowedOrigins } from './db/clients';
 import { startRefreshTokenCleanup, stopRefreshTokenCleanup, waitForRefreshTokenCleanup } from './db/refreshTokens';
@@ -27,6 +27,23 @@ import {
   stopAuthorizeSessionCleanup,
   waitForAuthorizeSessionCleanup,
 } from './db/authorizeSessions';
+import {
+  startEventLogRollup,
+  stopEventLogRollup,
+  waitForEventLogRollup,
+  startEventLogCleanup,
+  stopEventLogCleanup,
+  waitForEventLogCleanup,
+  backfillMissingRollups,
+} from './db/events';
+import { createMetricsServer } from './metrics/server';
+import {
+  setDbPoolConnections,
+  httpRequestDurationSeconds,
+  activeRefreshTokens,
+  setActiveRefreshTokens,
+  setClientsRegistered,
+} from './metrics/registry';
 
 function createServer(): FastifyInstance {
   const server = Fastify({
@@ -82,6 +99,19 @@ async function main(): Promise<void> {
   // Create Fastify instance
   const server = createServer();
 
+  server.addHook('onRequest', async (request) => {
+    (request as any).__startTime = Date.now();
+  });
+  server.addHook('onResponse', async (request, reply) => {
+    const start = (request as any).__startTime as number | undefined;
+    if (start) {
+      const duration = (Date.now() - start) / 1000;
+      httpRequestDurationSeconds.observe(
+        { route: request.routeOptions?.url ?? 'unmatched', method: request.method, status: String(reply.statusCode) },
+        duration,
+      );
+    }
+  });
 
   // Register Swagger (OpenAPI 3.0)
   await server.register(swagger, {
@@ -180,17 +210,58 @@ async function main(): Promise<void> {
   startAuthCodeCleanup();
   startRefreshTokenCleanup();
   startAuthorizeSessionCleanup();
+  if (config.enableEventLog) {
+    await backfillMissingRollups();
+    startEventLogRollup();
+    startEventLogCleanup();
+  }
+
+  // Poll DB pool stats into the Prometheus gauge
+  const poolStatsInterval = setInterval(() => {
+    const stats = getPoolStats();
+    setDbPoolConnections(stats.active, stats.idle);
+  }, 15_000);
+  poolStatsInterval.unref();
+
+  // Periodic gauge updates for refresh tokens and registered clients
+  const gaugeInterval = setInterval(async () => {
+    try {
+      const { rows: tokenRows } = await getPool().query<{ client_id: string; count: string }>(
+        'SELECT client_id, COUNT(*)::text AS count FROM refresh_tokens WHERE revoked = FALSE AND expires_at > now() GROUP BY client_id',
+      );
+      activeRefreshTokens.reset();
+      for (const row of tokenRows) {
+        setActiveRefreshTokens(row.client_id, parseInt(row.count, 10));
+      }
+      const { rows: clientRows } = await getPool().query<{ active: boolean; count: string }>(
+        'SELECT active, COUNT(*)::text AS count FROM oauth_clients GROUP BY active',
+      );
+      let activeCount = 0;
+      let inactiveCount = 0;
+      for (const row of clientRows) {
+        if (row.active) activeCount = parseInt(row.count, 10);
+        else inactiveCount = parseInt(row.count, 10);
+      }
+      setClientsRegistered(activeCount, inactiveCount);
+    } catch {
+      // Gauge update failure is non-critical
+    }
+  }, 60_000);
+  gaugeInterval.unref();
 
   // Start servers
+  const metricsServer = createMetricsServer();
   const listenOpts = { host: config.host };
   await Promise.all([
     server.listen({ ...listenOpts, port: config.port }),
     adminServer?.listen({ ...listenOpts, port: adminPort! }),
+    metricsServer.listen({ ...listenOpts, port: config.metricsPort }),
   ]);
   console.log(`Auth gateway listening on ${config.host}:${config.port}`);
   if (adminPort) {
     console.log(`Admin API listening on ${config.host}:${adminPort}`);
   }
+  console.log(`Metrics server listening on ${config.host}:${config.metricsPort}`);
 
   // Graceful shutdown
   let shuttingDown = false;
@@ -211,13 +282,20 @@ async function main(): Promise<void> {
     stopAuthCodeCleanup();
     stopRefreshTokenCleanup();
     stopAuthorizeSessionCleanup();
+    stopEventLogRollup();
+    stopEventLogCleanup();
+    clearInterval(poolStatsInterval);
+    clearInterval(gaugeInterval);
     await Promise.allSettled([
       waitForChallengeCleanup(),
       waitForDeviceCodeCleanup(),
       waitForAuthCodeCleanup(),
       waitForRefreshTokenCleanup(),
       waitForAuthorizeSessionCleanup(),
+      waitForEventLogRollup(),
+      waitForEventLogCleanup(),
     ]);
+    await metricsServer.close();
     if (adminServer) await adminServer.close();
     await server.close();
     await disconnectSubtensor();

@@ -36,6 +36,12 @@ import { testnetBannerHtml } from '../../util/testnet';
 import { AuthorizeQuerySchema, CallbackBodySchema, OAuthChallengeBodySchema } from '../../schemas/oauth';
 import { ChallengeResponseSchema } from '../../schemas/responses';
 import { sameOriginPreHandler } from '../../middleware/origin';
+import {
+  recordAuthorizeRequest,
+  recordScopeRequest,
+  recordChallenge,
+} from '../../metrics/registry';
+import { recordEvent } from '../../db/events';
 
 export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{
@@ -91,6 +97,16 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         redirectUri: session.redirectUri,
         sessionId: session.sessionId,
       });
+
+      recordChallenge({ sign_method: clientSignMethod, outcome: 'issued' });
+      recordEvent({
+        client_id: session.clientId,
+        event_type: 'challenge_issued',
+        outcome: 'success',
+        sign_method: clientSignMethod,
+        scopes: session.scopes,
+        metadata: { flow: 'oauth' },
+      }).catch(() => {});
 
       return reply.code(200).send({
         nonce: challenge.nonce,
@@ -205,6 +221,24 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         try {
           enforceClientScopes(scopes, client.allowed_scopes);
         } catch (err) {
+          for (const s of scopes) {
+            if (!client.allowed_scopes.includes(s)) {
+              recordScopeRequest({ client_id: client_id, scope: s, outcome: 'rejected' });
+            }
+          }
+          recordAuthorizeRequest({
+            client_id: client_id,
+            response_type,
+            outcome: 'failure',
+            error_reason: 'scope_rejected',
+          });
+          recordEvent({
+            client_id: client_id,
+            event_type: 'scope_rejected',
+            outcome: 'rejected',
+            scopes,
+            metadata: { response_type },
+          }).catch(() => {});
           return sendHtmlError(reply, 403, 'Forbidden', (err as Error).message);
         }
       }
@@ -220,6 +254,18 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         oidcNonce,
         state,
       });
+
+      recordAuthorizeRequest({ client_id: client_id, response_type, outcome: 'success' });
+      for (const s of scopes) {
+        recordScopeRequest({ client_id: client_id, scope: s, outcome: 'granted' });
+      }
+      recordEvent({
+        client_id: client_id,
+        event_type: 'authorize',
+        outcome: 'success',
+        scopes,
+        metadata: { response_type },
+      }).catch(() => {});
 
       const cspNonce = generateNonce();
       const clientSignMethod = getClientSignMethod(client.allowed_sign_methods);
@@ -647,7 +693,20 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         throw new AuthError('Address mismatch', 401, 'Unauthorized');
       }
 
-      await verifySignatureOrThrow(nonce, signature, address, method);
+      try {
+        await verifySignatureOrThrow(nonce, signature, address, method);
+      } catch (sigErr) {
+        recordChallenge({ sign_method: method, outcome: 'failure' });
+        recordEvent({
+          client_id: session.clientId,
+          event_type: 'challenge_verified',
+          outcome: 'failure',
+          sign_method: method,
+          error_reason: 'signature_invalid',
+          metadata: { flow: 'oauth' },
+        }).catch(() => {});
+        throw sigErr;
+      }
 
       const isEvm = method === 'evm';
       const signerCtx = isEvm ? resolveEvmSignerContext(address) : await resolveSignerContext(address);
@@ -687,6 +746,17 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         coldkey: signerCtx.coldkey,
         evm_address: signerCtx.evmAddress,
       });
+
+      recordChallenge({ sign_method: method, outcome: 'verified' });
+      recordEvent({
+        client_id: session.clientId,
+        event_type: 'challenge_verified',
+        outcome: 'success',
+        subject: address,
+        sign_method: method,
+        scopes: challenge.scopes,
+        metadata: { flow: 'oauth' },
+      }).catch(() => {});
 
       return reply.code(200).send({ code });
     },

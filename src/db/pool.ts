@@ -25,3 +25,16 @@ export async function disconnectDb(): Promise<void> {
     pool = null;
   }
 }
+
+export interface PoolStats {
+  active: number;
+  idle: number;
+}
+
+export function getPoolStats(): PoolStats {
+  if (!pool) return { active: 0, idle: 0 };
+  const total = pool.totalCount;
+  const idle = pool.idleCount;
+  const active = Math.max(0, total - idle);
+  return { active, idle };
+}

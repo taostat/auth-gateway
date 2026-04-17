@@ -85,3 +85,23 @@ export interface RefreshTokenRecord {
   expires_at: Date;
   created_at: Date;
 }
+
+export type EventType =
+  | 'authorize'
+  | 'token_exchange'
+  | 'token_refresh'
+  | 'device_code_issued'
+  | 'device_code_polled'
+  | 'device_code_approved'
+  | 'device_code_denied'
+  | 'device_code_expired'
+  | 'challenge_issued'
+  | 'challenge_verified'
+  | 'scope_rejected'
+  | 'rate_limit_hit';
+
+// granted/rejected are emitted on scope_rejected events; pending is emitted on device_code_polled.
+export type Outcome = 'success' | 'failure' | 'granted' | 'rejected' | 'pending';
+
+export type Window = '24h' | '7d' | '30d';
+
