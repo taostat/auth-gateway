@@ -98,6 +98,7 @@ function buildTokenResponse(
 interface HandlerResult {
   reply: FastifyReply;
   subject: string;
+  scopes: string[];
 }
 
 async function handleAuthorizationCode(
@@ -229,7 +230,7 @@ async function handleAuthorizationCode(
       evm_address: evmAddress,
     }),
   );
-  return { reply: sent, subject: address };
+  return { reply: sent, subject: address, scopes };
 }
 
 async function handleRefreshToken(
@@ -350,7 +351,7 @@ async function handleRefreshToken(
       evm_address: signerCtx.evmAddress,
     }),
   );
-  return { reply: sent, subject: address };
+  return { reply: sent, subject: address, scopes };
 }
 
 async function handleDeviceCode(
@@ -492,7 +493,7 @@ async function handleDeviceCode(
         evm_address: signerCtx.evmAddress,
       }),
     );
-    return { reply: sent, subject: claimed.address! };
+    return { reply: sent, subject: claimed.address!, scopes: claimed.scopes };
   } catch (err) {
     if (!redemptionSettled) {
       await rollbackDeviceCodeRedemption(redemptionClient);
@@ -528,7 +529,12 @@ export async function tokenRoutes(fastify: FastifyInstance): Promise<void> {
       const { grant_type } = request.body;
       const { client, pkceRequired } = await authenticateClient(request);
       enforceAllowedOriginForClient(request, client.allowed_origins);
-      checkClientRateLimit(client.client_id, client.rate_limit, 'token');
+      // Device-code polling is RFC 8628; CLIs only handle OAuth error codes,
+      // so map rate-limit exceed to `slow_down` instead of a bare HTTP 429.
+      const isDeviceCodeGrant = grant_type === 'urn:ietf:params:oauth:grant-type:device_code';
+      checkClientRateLimit(client.client_id, client.rate_limit, 'token', {
+        slowDownOnExceed: isDeviceCodeGrant,
+      });
 
       const allowedGrant =
         grant_type === 'urn:ietf:params:oauth:grant-type:device_code'
@@ -578,6 +584,7 @@ export async function tokenRoutes(fastify: FastifyInstance): Promise<void> {
           outcome: 'success',
           sign_method: signMethod,
           subject: outcome.subject,
+          scopes: outcome.scopes,
         }).catch(() => {});
         return outcome.reply;
       } catch (err) {
@@ -657,6 +664,7 @@ export async function tokenRoutes(fastify: FastifyInstance): Promise<void> {
           outcome: 'success',
           sign_method: signMethod,
           subject: outcome.subject,
+          scopes: outcome.scopes,
         }).catch(() => {});
         return outcome.reply;
       } catch (err) {

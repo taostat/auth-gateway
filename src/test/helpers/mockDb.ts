@@ -763,7 +763,7 @@ export function setupMockDb(): void {
         for (const e of oauthEvents) {
           if (
             e.client_id === clientId &&
-            e.event_type === 'authorize' &&
+            e.event_type === 'token_exchange' &&
             e.outcome === 'success' &&
             e.occurred_at.getTime() >= scopeCutoff
           ) {
