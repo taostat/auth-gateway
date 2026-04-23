@@ -109,3 +109,13 @@ export class SlowDownError extends AuthError {
     this.name = 'SlowDownError';
   }
 }
+
+export class RateLimitError extends AuthError {
+  public retryAfter: number; // seconds until the client may retry
+
+  constructor(retryAfter: number) {
+    super('Rate limit exceeded for this client', 429, 'Too Many Requests');
+    this.name = 'RateLimitError';
+    this.retryAfter = retryAfter;
+  }
+}
