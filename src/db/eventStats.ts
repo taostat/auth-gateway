@@ -158,13 +158,17 @@ async function scopesRequested(
   clientId: string,
   window: Window,
 ): Promise<Array<{ scope: string; count: number }>> {
+  // token_exchange fires once per new token grant across all flows (auth code,
+  // device code). authorize is skipped because browser flow emits both, and
+  // token_refresh is skipped because it carries scopes forward from an existing
+  // grant rather than representing a new request.
   const { rows } = await getPool().query(
     `SELECT scope, COUNT(*)::int AS count
      FROM (
        SELECT UNNEST(scopes) AS scope
        FROM oauth_events
        WHERE client_id = $1
-         AND event_type = 'authorize'
+         AND event_type = 'token_exchange'
          AND outcome = 'success'
          AND occurred_at >= now() - $2::interval
      ) s

@@ -1,6 +1,6 @@
 import { FastifyError, FastifyReply, FastifyRequest } from 'fastify';
 import { hasZodFastifySchemaValidationErrors } from 'fastify-type-provider-zod';
-import { AuthError } from './util/errors';
+import { AuthError, RateLimitError } from './util/errors';
 
 interface ErrorHandlerOptions {
   hideInternalErrors: boolean;
@@ -19,6 +19,9 @@ export function createErrorHandler(opts: ErrorHandlerOptions) {
     }
 
     if (error instanceof AuthError) {
+      if (error instanceof RateLimitError) {
+        reply.header('Retry-After', String(error.retryAfter));
+      }
       return reply.code(error.statusCode).send({
         error: error.error,
         error_description: error.message,

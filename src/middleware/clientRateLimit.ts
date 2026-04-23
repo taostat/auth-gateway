@@ -1,4 +1,4 @@
-import { AuthError } from '../util/errors';
+import { RateLimitError, SlowDownError } from '../util/errors';
 import { BoundedMap } from '../util/boundedMap';
 import { recordRateLimitHit } from '../metrics/registry';
 import { recordEvent } from '../db/events';
@@ -12,11 +12,26 @@ const WINDOW_MS = 60_000; // 1 minute
 
 const counters = new BoundedMap<string, RateWindow>(10_000, (entry) => Date.now() - entry.windowStart > WINDOW_MS);
 
+export interface RateLimitOptions {
+  /**
+   * If true, throw SlowDownError (RFC 8628 `slow_down`) instead of a generic
+   * 429. Use for device-code polling so CLIs get an OAuth error code they
+   * recognize and back off correctly.
+   */
+  slowDownOnExceed?: boolean;
+}
+
 /**
- * Check per-client rate limit. Throws 429 if the client has exceeded
- * their configured rate_limit within the current 1-minute window.
+ * Check per-client rate limit within a fixed 1-minute window. Throws on
+ * exceed — either RateLimitError (HTTP 429 with Retry-After) or, when
+ * `slowDownOnExceed` is set, SlowDownError (HTTP 400 `slow_down`).
  */
-export function checkClientRateLimit(clientId: string, limit: number, endpoint: string): void {
+export function checkClientRateLimit(
+  clientId: string,
+  limit: number,
+  endpoint: string,
+  opts: RateLimitOptions = {},
+): void {
   if (limit <= 0) return; // 0 = unlimited
 
   const now = Date.now();
@@ -36,7 +51,13 @@ export function checkClientRateLimit(clientId: string, limit: number, endpoint: 
       outcome: 'failure',
       metadata: { endpoint },
     }).catch(() => {});
-    throw new AuthError('Rate limit exceeded for this client', 429, 'Too Many Requests');
+
+    if (opts.slowDownOnExceed) {
+      throw new SlowDownError();
+    }
+
+    const retryAfter = Math.max(1, Math.ceil((WINDOW_MS - (now - existing.windowStart)) / 1000));
+    throw new RateLimitError(retryAfter);
   }
 }
 

@@ -63,6 +63,30 @@ describe('Client Rate Limit', () => {
       expect(err.error).toBe('Too Many Requests');
     }
   });
+
+  test('rate-limit error carries retryAfter in seconds', () => {
+    checkClientRateLimit('client-h', 1, 'token');
+    try {
+      checkClientRateLimit('client-h', 1, 'token');
+      fail('Should have thrown');
+    } catch (err: any) {
+      expect(err.name).toBe('RateLimitError');
+      expect(err.retryAfter).toBeGreaterThanOrEqual(1);
+      expect(err.retryAfter).toBeLessThanOrEqual(60);
+    }
+  });
+
+  test('slowDownOnExceed throws SlowDownError instead of 429', () => {
+    checkClientRateLimit('client-i', 1, 'token', { slowDownOnExceed: true });
+    try {
+      checkClientRateLimit('client-i', 1, 'token', { slowDownOnExceed: true });
+      fail('Should have thrown');
+    } catch (err: any) {
+      expect(err.name).toBe('SlowDownError');
+      expect(err.statusCode).toBe(400);
+      expect(err.error).toBe('slow_down');
+    }
+  });
 });
 
 describe('BoundedMap', () => {

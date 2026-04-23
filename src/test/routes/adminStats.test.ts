@@ -118,16 +118,16 @@ describe('GET /v1/admin/clients/:client_id/stats', () => {
     expect(body.failures_by_reason).toEqual({ invalid_grant: 1 });
   });
 
-  test('scopes_requested aggregates across authorize successes', async () => {
+  test('scopes_requested aggregates across token_exchange successes', async () => {
     addTestOAuthEvent({
       client_id: 'test-client-id',
-      event_type: 'authorize',
+      event_type: 'token_exchange',
       outcome: 'success',
       scopes: ['openid', 'subnet:1:miner'],
     });
     addTestOAuthEvent({
       client_id: 'test-client-id',
-      event_type: 'authorize',
+      event_type: 'token_exchange',
       outcome: 'success',
       scopes: ['openid'],
     });

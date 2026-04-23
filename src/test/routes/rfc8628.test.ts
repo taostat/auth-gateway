@@ -41,6 +41,7 @@ import { FastifyInstance } from 'fastify';
 import { browserGet, browserPost, buildTestApp } from '../helpers/app';
 import { getAliceAddress, signWithAlice } from '../helpers/sign';
 import { getDeviceCode, denyDeviceCode } from '../../db/deviceCodes';
+import { clearRateLimitCounters } from '../../middleware/clientRateLimit';
 
 let app: FastifyInstance;
 
@@ -58,6 +59,7 @@ beforeEach(() => {
   clearTestDeviceCodes();
   clearTestClients();
   clearTestRefreshTokens();
+  clearRateLimitCounters();
   addTestClient(createTestClient());
   addTestClient(createPublicTestClient());
 });
@@ -309,6 +311,26 @@ describe('RFC 8628 Compliance', () => {
       expect(JSON.parse(first.payload).error).toBe('authorization_pending');
 
       const second = await pollToken(device_code);
+      expect(JSON.parse(second.payload).error).toBe('slow_down');
+    });
+
+    test('rate-limit exceeded returns slow_down (not 429) for device_code grant', async () => {
+      const lowLimitClientId = 'rate-limited-client';
+      addTestClient(createTestClient({ client_id: lowLimitClientId, rate_limit: 1 }));
+
+      const codeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/device/code',
+        payload: { client_id: lowLimitClientId, client_secret: TEST_CLIENT_SECRET },
+      });
+      const { device_code } = JSON.parse(codeRes.payload);
+
+      const first = await pollToken(device_code, lowLimitClientId);
+      expect(first.statusCode).toBe(400);
+      expect(JSON.parse(first.payload).error).toBe('authorization_pending');
+
+      const second = await pollToken(device_code, lowLimitClientId);
+      expect(second.statusCode).toBe(400);
       expect(JSON.parse(second.payload).error).toBe('slow_down');
     });
 
