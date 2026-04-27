@@ -20,6 +20,8 @@ await build({
     '@polkadot/util',
     '@polkadot/wasm-crypto',
     'pg',
+    // require.resolve target for the dev-mode swagger-ui fallback.
+    '@fastify/swagger-ui/static/index.html',
   ],
 });
 
