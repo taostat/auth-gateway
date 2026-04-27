@@ -7,6 +7,7 @@ import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { validatorCompiler, serializerCompiler, jsonSchemaTransform } from 'fastify-type-provider-zod';
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import { config } from './config';
 import { loadKeys } from './crypto/keys';
 import { startChallengeCleanup, stopChallengeCleanup, waitForChallengeCleanup } from './crypto/challenge';
@@ -140,12 +141,18 @@ async function main(): Promise<void> {
     transform: jsonSchemaTransform,
   });
 
-  // Register Swagger UI at /docs
-  // baseDir is required because esbuild bundles into dist/index.js,
-  // so the default __dirname-relative path won't resolve correctly.
+  // Register Swagger UI at /docs.
+  // esbuild bundles the plugin into dist/index.js, so its own __dirname-relative
+  // asset resolution breaks; the build copies assets to dist/static/. In dev
+  // (tsx running from src/) that copy doesn't exist — fall back to the
+  // package's installed static dir.
+  const bundledStaticDir = path.join(__dirname, 'static');
+  const swaggerBaseDir = existsSync(path.join(bundledStaticDir, 'swagger-ui.css'))
+    ? bundledStaticDir
+    : path.dirname(require.resolve('@fastify/swagger-ui/static/index.html'));
   await server.register(swaggerUi, {
     routePrefix: '/docs',
-    baseDir: path.join(__dirname, 'static'),
+    baseDir: swaggerBaseDir,
   });
 
   // Register plugins — dynamic CORS origin validation
