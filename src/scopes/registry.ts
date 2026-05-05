@@ -34,15 +34,55 @@ export interface ScopeDefinition {
   handlers: Record<string, ScopeHandler>;
   sign_methods: SignMethod[];
   testnet_supported: boolean;
+  /** Marks scopes that are identity-only (e.g. `openid`) — skipped by on-chain verification and excluded from JSON Schema discovery. */
+  isMetadata?: boolean;
+  /** Human-readable description used by the consent screen and event log. */
+  describe(parsed: ParsedScope): string;
+  /** Amount-stripped form of an amount-bearing scope (e.g. `subnet:1:holder` for `subnet:1:holder:100`), or undefined when the scope has no base form. */
+  baseScope(parsed: ParsedScope): string | undefined;
+  /** Override sign-method support. Defaults to `sign_methods.includes(method)` when omitted. */
+  supportsSignMethod?(method: SignMethod): boolean;
 }
 
 const AMT = '\\d+(?:\\.\\d+)?';
+const RAO_PER_UNIT = BigInt(1e9);
 
 function optionalAmount(raw: string | undefined): bigint | undefined {
   return raw !== undefined ? taoStringToRao(raw) : undefined;
 }
 
+function raoToDisplay(rao: bigint): string {
+  const whole = rao / RAO_PER_UNIT;
+  const frac = rao % RAO_PER_UNIT;
+  if (frac === 0n) return whole.toString();
+  const fracStr = frac.toString().padStart(9, '0').replace(/0+$/, '');
+  return `${whole}.${fracStr}`;
+}
+
+const SUBNET_ROLE_LABEL: Record<string, string> = {
+  miner: 'Miner',
+  validator: 'Validator',
+  owner: 'Owner',
+  holder: 'Token Holder',
+};
+
 export const SCOPE_REGISTRY: ScopeDefinition[] = [
+  {
+    id: 'openid',
+    name: 'OpenID',
+    description: 'Standard OIDC identity scope — issued without on-chain verification.',
+    format: 'openid',
+    templates: ['openid'],
+    regex: /^openid$/,
+    params: z.object({}).meta({ examples: [{}] }),
+    parse: () => ({ type: 'metadata', role: 'openid', netuid: 0 }),
+    handlers: {},
+    sign_methods: ['sr25519', 'evm'],
+    testnet_supported: true,
+    isMetadata: true,
+    describe: () => 'openid',
+    baseScope: () => undefined,
+  },
   {
     id: 'subnet_role',
     name: 'Subnet Role',
@@ -64,6 +104,8 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
     handlers: { miner: minerHandler, validator: validatorHandler, owner: ownerHandler },
     sign_methods: ['sr25519'],
     testnet_supported: true,
+    describe: (p) => `${SUBNET_ROLE_LABEL[p.role] ?? p.role} on Subnet ${p.netuid}`,
+    baseScope: () => undefined,
   },
   {
     id: 'subnet_holder',
@@ -87,6 +129,11 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
     handlers: { holder: holderHandler },
     sign_methods: ['sr25519'],
     testnet_supported: true,
+    describe: (p) => {
+      const suffix = p.minAmount !== undefined ? ` (min ${raoToDisplay(p.minAmount)} alpha)` : '';
+      return `${SUBNET_ROLE_LABEL['holder']} on Subnet ${p.netuid}${suffix}`;
+    },
+    baseScope: (p) => `subnet:${p.netuid}:holder`,
   },
   {
     id: 'tao_holder',
@@ -109,6 +156,11 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
     handlers: { holder: taoHolderHandler },
     sign_methods: ['sr25519'],
     testnet_supported: true,
+    describe: (p) => {
+      const suffix = p.minAmount !== undefined ? ` (min ${raoToDisplay(p.minAmount)} TAO)` : '';
+      return `TAO Holder${suffix}`;
+    },
+    baseScope: () => 'tao:holder',
   },
   {
     id: 'delegator',
@@ -133,6 +185,13 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
     handlers: { delegate: delegateHandler },
     sign_methods: ['sr25519'],
     testnet_supported: false,
+    describe: (p) => {
+      if (!p.hotkey) return 'Delegator';
+      const short = `${p.hotkey.slice(0, 8)}...${p.hotkey.slice(-6)}`;
+      const suffix = p.minAmount !== undefined ? ` (min ${raoToDisplay(p.minAmount)} TAO)` : '';
+      return `Delegator to ${short}${suffix}`;
+    },
+    baseScope: (p) => (p.hotkey ? `delegate:${p.hotkey}` : undefined),
   },
   {
     id: 'staker',
@@ -155,6 +214,9 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
     handlers: { staker: stakerHandler },
     sign_methods: ['sr25519'],
     testnet_supported: false,
+    describe: (p) =>
+      p.minAmount !== undefined ? `Staker (min ${raoToDisplay(p.minAmount)} TAO total)` : 'Staker',
+    baseScope: () => undefined,
   },
 ];
 
@@ -212,7 +274,7 @@ let cachedScopeConfig: ScopeConfig | null = null;
 export function getScopeConfig(): ScopeConfig {
   if (!cachedScopeConfig) {
     cachedScopeConfig = {
-      scope_categories: SCOPE_REGISTRY.map((def) => ({
+      scope_categories: SCOPE_REGISTRY.filter((def) => !def.isMetadata).map((def) => ({
         id: def.id,
         name: def.name,
         description: def.description,

@@ -1,7 +1,7 @@
 import { SignerContext } from './signerContext';
 
 export interface ParsedScope {
-  type: 'subnet' | 'tao' | 'delegate' | 'staker';
+  type: 'subnet' | 'tao' | 'delegate' | 'staker' | 'metadata';
   role: string;
   netuid: number;
   minAmount?: bigint | undefined;

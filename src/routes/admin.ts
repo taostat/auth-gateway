@@ -2,9 +2,17 @@ import crypto from 'crypto';
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { config } from '../config';
-import { createClient, listClients, deactivateClient, updateClient, rotateClientSecret, getClientById, UpdateClientFields } from '../db/clients';
+import {
+  createClient,
+  listClients,
+  deactivateClient,
+  updateClient,
+  rotateClientSecret,
+  getClientById,
+  UpdateClientFields,
+} from '../db/clients';
 import { AdminAuthError, AuthError, OAuthErrorCode } from '../util/errors';
-import { validateScopeFormat } from '../scopes';
+import { validateAllowedScopeFormat } from '../scopes';
 import { CreateClientBodySchema, UpdateClientBodySchema, ClientIdParamsSchema } from '../schemas/admin';
 import { StatsQuerySchema, OverviewQuerySchema, EventsQuerySchema } from '../schemas/stats';
 import { ErrorResponseSchema } from '../schemas/responses';
@@ -107,10 +115,10 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
         throw new AuthError('allowed_sign_methods must contain exactly one sign method', 400, 'Bad Request');
       }
 
-      // Validate each scope format
+      // Validate each scope format (literal scopes or wildcard templates)
       if (allowed_scopes) {
         for (const scope of allowed_scopes) {
-          if (!validateScopeFormat(scope)) {
+          if (!validateAllowedScopeFormat(scope)) {
             throw new AuthError(`Invalid scope format: ${scope}`, 400, 'Bad Request');
           }
         }
@@ -233,28 +241,21 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
       const normalizedAllowedOrigins = normalizeAllowedOrigins(body.allowed_origins);
 
       // Fetch existing client for cross-field validation when needed
-      const needsExisting =
-        body.grant_types || body.redirect_uris || body.allowed_scopes;
-      const existing = needsExisting
-        ? await getClientById(client_id)
-        : null;
+      const needsExisting = body.grant_types || body.redirect_uris || body.allowed_scopes;
+      const existing = needsExisting ? await getClientById(client_id) : null;
 
       // Validate grant_types vs redirect_uris (both directions)
       const effectiveGrants = body.grant_types ?? existing?.grant_types ?? [];
       const effectiveUris = body.redirect_uris ?? existing?.redirect_uris ?? [];
       const needsCallback = effectiveGrants.some((g) => GRANTS_REQUIRING_CALLBACK.includes(g));
       if (needsCallback && effectiveUris.length === 0) {
-        throw new AuthError(
-          'redirect_uris required when authorization_code grant is enabled',
-          400,
-          'Bad Request',
-        );
+        throw new AuthError('redirect_uris required when authorization_code grant is enabled', 400, 'Bad Request');
       }
 
-      // Validate scopes if provided
+      // Validate scopes if provided (literal scopes or wildcard templates)
       if (body.allowed_scopes) {
         for (const scope of body.allowed_scopes) {
-          if (!validateScopeFormat(scope)) {
+          if (!validateAllowedScopeFormat(scope)) {
             throw new AuthError(`Invalid scope format: ${scope}`, 400, 'Bad Request');
           }
         }
@@ -325,11 +326,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
       const result = await rotateClientSecret(client_id);
 
       if (!result) {
-        throw new AuthError(
-          'Client not found or is not a confidential client',
-          404,
-          'Not Found',
-        );
+        throw new AuthError('Client not found or is not a confidential client', 404, 'Not Found');
       }
 
       return reply.code(200).send({
@@ -402,8 +399,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const stats = await getClientStats(client_id, window);
-      const successRate =
-        stats.totals.exchanges === 0 ? 0 : stats.totals.successes / stats.totals.exchanges;
+      const successRate = stats.totals.exchanges === 0 ? 0 : stats.totals.successes / stats.totals.exchanges;
 
       return reply.code(200).send({
         client_id,

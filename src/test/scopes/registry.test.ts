@@ -1,8 +1,9 @@
 import { SCOPE_REGISTRY, GRANT_TYPES, SIGN_METHODS, getScopeConfig, ScopeConfig } from '../../scopes/registry';
 
 describe('SCOPE_REGISTRY', () => {
-  test('contains 5 scope categories', () => {
-    expect(SCOPE_REGISTRY).toHaveLength(5);
+  test('contains openid plus 5 verifiable scope categories', () => {
+    expect(SCOPE_REGISTRY).toHaveLength(6);
+    expect(SCOPE_REGISTRY.filter((d) => !d.isMetadata)).toHaveLength(5);
   });
 
   test('each entry has required fields', () => {
