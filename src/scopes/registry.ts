@@ -404,7 +404,10 @@ export interface ScopeConfig {
     name: string;
     description: string;
     format: string;
+    /** JSON Schema describing the params of a *concrete* scope (e.g. requested at challenge or authorize time). Strict — `*` is not accepted. */
     parameters: Record<string, unknown>;
+    /** JSON Schema describing the params of an `allowed_scopes` *entry*. Each property accepts either `*` or the original concrete-param schema, so the form builder can render a wildcard toggle per param. */
+    allowed_entry_parameters: Record<string, unknown>;
     sign_methods: string[];
     testnet_supported: boolean;
   }>;
@@ -413,20 +416,40 @@ export interface ScopeConfig {
   evm_scope_restriction: string;
 }
 
+/**
+ * Mechanically derives the `allowed_entry_parameters` JSON Schema from the
+ * concrete-scope `parameters` schema by wrapping each property in
+ * `oneOf: [{ const: '*' }, <original> ]`. `required` and other top-level
+ * keywords are preserved unchanged.
+ */
+function deriveAllowedEntryParameters(parameters: Record<string, unknown>): Record<string, unknown> {
+  const props = parameters['properties'] as Record<string, unknown> | undefined;
+  if (!props) return parameters;
+  const wrapped: Record<string, unknown> = {};
+  for (const [name, prop] of Object.entries(props)) {
+    wrapped[name] = { oneOf: [{ const: '*' }, prop] };
+  }
+  return { ...parameters, properties: wrapped };
+}
+
 let cachedScopeConfig: ScopeConfig | null = null;
 
 export function getScopeConfig(): ScopeConfig {
   if (!cachedScopeConfig) {
     cachedScopeConfig = {
-      scope_categories: SCOPE_REGISTRY.filter((def) => !def.isMetadata).map((def) => ({
-        id: def.id,
-        name: def.name,
-        description: def.description,
-        format: def.format,
-        parameters: toJSONSchema(def.params),
-        sign_methods: def.sign_methods,
-        testnet_supported: def.testnet_supported,
-      })),
+      scope_categories: SCOPE_REGISTRY.filter((def) => !def.isMetadata).map((def) => {
+        const parameters = toJSONSchema(def.params);
+        return {
+          id: def.id,
+          name: def.name,
+          description: def.description,
+          format: def.format,
+          parameters,
+          allowed_entry_parameters: deriveAllowedEntryParameters(parameters),
+          sign_methods: def.sign_methods,
+          testnet_supported: def.testnet_supported,
+        };
+      }),
       grant_types: GRANT_TYPES,
       sign_methods: SIGN_METHODS,
       evm_scope_restriction:
