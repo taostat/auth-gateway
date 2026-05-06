@@ -71,7 +71,7 @@ describe('SCOPE_REGISTRY', () => {
     test('subnet_role parse', () => {
       const def = SCOPE_REGISTRY.find((d) => d.id === 'subnet_role')!;
       const match = 'subnet:1:miner'.match(def.regex)!;
-      const parsed = def.parse(match);
+      const parsed = def.parse(match.groups ?? {});
       expect(parsed.type).toBe('subnet');
       expect(parsed.netuid).toBe(1);
       expect(parsed.role).toBe('miner');
@@ -80,7 +80,7 @@ describe('SCOPE_REGISTRY', () => {
     test('subnet_holder parse with amount', () => {
       const def = SCOPE_REGISTRY.find((d) => d.id === 'subnet_holder')!;
       const match = 'subnet:1:holder:100'.match(def.regex)!;
-      const parsed = def.parse(match);
+      const parsed = def.parse(match.groups ?? {});
       expect(parsed.type).toBe('subnet');
       expect(parsed.netuid).toBe(1);
       expect(parsed.role).toBe('holder');
@@ -90,7 +90,7 @@ describe('SCOPE_REGISTRY', () => {
     test('tao_holder parse without amount', () => {
       const def = SCOPE_REGISTRY.find((d) => d.id === 'tao_holder')!;
       const match = 'tao:holder'.match(def.regex)!;
-      const parsed = def.parse(match);
+      const parsed = def.parse(match.groups ?? {});
       expect(parsed.type).toBe('tao');
       expect(parsed.role).toBe('holder');
       expect(parsed.minAmount).toBeUndefined();
@@ -99,7 +99,7 @@ describe('SCOPE_REGISTRY', () => {
     test('delegator parse', () => {
       const def = SCOPE_REGISTRY.find((d) => d.id === 'delegator')!;
       const match = `delegate:${HOTKEY}:500`.match(def.regex)!;
-      const parsed = def.parse(match);
+      const parsed = def.parse(match.groups ?? {});
       expect(parsed.type).toBe('delegate');
       expect(parsed.hotkey).toBe(HOTKEY);
       expect(parsed.minAmount).toBe(500_000_000_000n);
@@ -108,7 +108,7 @@ describe('SCOPE_REGISTRY', () => {
     test('staker parse', () => {
       const def = SCOPE_REGISTRY.find((d) => d.id === 'staker')!;
       const match = 'staker:1000'.match(def.regex)!;
-      const parsed = def.parse(match);
+      const parsed = def.parse(match.groups ?? {});
       expect(parsed.type).toBe('staker');
       expect(parsed.minAmount).toBe(1_000_000_000_000n);
     });

@@ -15,7 +15,7 @@ function findDef(scope: string): ScopeDefinition | undefined {
 function parseScopeWithDef(scope: string): { def: ScopeDefinition; parsed: ParsedScope } {
   for (const def of SCOPE_REGISTRY) {
     const match = scope.match(def.regex);
-    if (match) return { def, parsed: def.parse(match) };
+    if (match) return { def, parsed: def.parse(match.groups ?? {}) };
   }
   throw new InvalidScopeFormatError(scope);
 }
@@ -91,8 +91,23 @@ function scopeMatchesAllowed(requestedScope: string, allowedEntry: string): bool
   return true;
 }
 
-function matchesAnyAllowed(requestedScope: string, allowedScopes: string[]): boolean {
-  return allowedScopes.some((entry) => scopeMatchesAllowed(requestedScope, entry));
+/**
+ * Match a requested scope against an allowlist, restricted to entries that
+ * structurally belong to the requested scope's category (`def.allowedEntryRegex`).
+ *
+ * This prevents wildcard cross-category leakage: `subnet:1:*` (valid as a
+ * `subnet_role` entry) cannot positionally authorize a `subnet:1:holder`
+ * request because subnet_holder's regex has `holder` as a literal — `*` cannot
+ * substitute for it.
+ */
+function matchesAnyAllowedForDef(
+  def: ScopeDefinition,
+  requestedScope: string,
+  allowedScopes: string[],
+): boolean {
+  return allowedScopes.some(
+    (entry) => def.allowedEntryRegex.test(entry) && scopeMatchesAllowed(requestedScope, entry),
+  );
 }
 
 /**
@@ -100,10 +115,11 @@ function matchesAnyAllowed(requestedScope: string, allowedScopes: string[]): boo
  *
  * An empty allowlist short-circuits to permit every scope (no client-side
  * enforcement). Metadata scopes (e.g. `openid`) always pass. Otherwise the
- * scope is checked literally and via wildcard entries in the allowlist; for
- * amount-bearing scopes, the amount-stripped base scope is also checked
- * against the allowlist (literal and wildcard) to allow a base entry like
- * `subnet:1:holder` to permit `subnet:1:holder:100`.
+ * scope is checked against allowlist entries that belong to the same scope
+ * category (so a `subnet_role` entry cannot authorize a `subnet_holder`
+ * request); for amount-bearing scopes, the amount-stripped base scope is
+ * also checked, so a base entry like `subnet:1:holder` permits
+ * `subnet:1:holder:100`.
  */
 export function isScopeAllowedForClient(requestedScope: string, allowedScopes: string[]): boolean {
   if (allowedScopes.length === 0) return true;
@@ -119,11 +135,11 @@ export function isScopeAllowedForClient(requestedScope: string, allowedScopes: s
   }
   if (def.isMetadata) return true;
 
-  if (matchesAnyAllowed(requestedScope, allowedScopes)) return true;
+  if (matchesAnyAllowedForDef(def, requestedScope, allowedScopes)) return true;
   if (parsed.minAmount === undefined) return false;
 
   const base = def.baseScope(parsed);
-  return base !== undefined && matchesAnyAllowed(base, allowedScopes);
+  return base !== undefined && matchesAnyAllowedForDef(def, base, allowedScopes);
 }
 
 export function enforceClientScopes(requestedScopes: string[], allowedScopes: string[]): void {

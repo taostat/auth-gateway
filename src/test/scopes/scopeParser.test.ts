@@ -144,10 +144,7 @@ describe('validateAllowedScopeFormat', () => {
     'subnet:*:holder:100',
     'subnet:1:holder:*',
     'subnet:*:holder:*',
-    '*:*:owner',
-    '*:1:miner',
     'subnet:1:*',
-    'tao:*',
     'tao:holder:*',
     `delegate:${HOTKEY}`,
     'delegate:*',
@@ -174,6 +171,12 @@ describe('validateAllowedScopeFormat', () => {
     '*:abc:miner',
     'subnet:*:holder:',
     'staker:*:*',
+    // Literal segments (`subnet`, `tao`, `delegate`, `staker`, `holder`) are
+    // part of a scope's identity and cannot be wildcarded — `*` only
+    // substitutes for parameter values, never for literals.
+    '*:*:owner',
+    '*:1:miner',
+    'tao:*',
   ];
 
   for (const entry of invalid) {
@@ -268,12 +271,18 @@ describe('enforceClientScopes', () => {
     expect(() => enforceClientScopes(['subnet:42:holder:100'], ['subnet:*:holder'])).not.toThrow();
   });
 
-  test('multiple wildcards in one allowed entry', () => {
-    expect(() => enforceClientScopes(['subnet:42:owner'], ['*:*:owner'])).not.toThrow();
+  test('wildcard cannot substitute for a literal segment (subnet)', () => {
+    // `*` in the `subnet` slot is a literal-wildcard — would cross-authorize
+    // unrelated scope categories. Denied at admin time and at runtime.
+    expect(() => enforceClientScopes(['subnet:1:miner'], ['*:1:miner'])).toThrow('not allowed');
+    expect(() => enforceClientScopes(['subnet:42:owner'], ['*:*:owner'])).toThrow('not allowed');
   });
 
-  test('wildcard at the start segment', () => {
-    expect(() => enforceClientScopes(['subnet:1:miner'], ['*:1:miner'])).not.toThrow();
+  test('wildcard cannot cross scope categories', () => {
+    // `subnet:1:*` is a valid `subnet_role` allowlist entry (role is a
+    // parameter), but cannot authorize a `subnet_holder` request because
+    // `holder` is a literal in subnet_holder, not a wildcardable param.
+    expect(() => enforceClientScopes(['subnet:1:holder'], ['subnet:1:*'])).toThrow('not allowed');
   });
 
   test('wildcard at the end segment', () => {
