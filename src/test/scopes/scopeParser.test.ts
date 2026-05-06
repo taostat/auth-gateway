@@ -1,4 +1,12 @@
-import { parseScope, validateScopeFormat, describeScope, enforceClientScopes, validateScopesForSignMethod } from '../../scopes/index';
+import {
+  parseScope,
+  validateScopeFormat,
+  validateAllowedScopeFormat,
+  describeScope,
+  enforceClientScopes,
+  isScopeAllowedForClient,
+  validateScopesForSignMethod,
+} from '../../scopes/index';
 import { taoStringToRao } from '../../taostats/client';
 
 const RAO = 1_000_000_000n;
@@ -125,6 +133,60 @@ describe('validateScopeFormat', () => {
   }
 });
 
+describe('validateAllowedScopeFormat', () => {
+  const valid = [
+    'openid',
+    'subnet:1:miner',
+    'subnet:*:miner',
+    'subnet:*:validator',
+    'subnet:*:owner',
+    'subnet:*:holder',
+    'subnet:*:holder:100',
+    'subnet:1:holder:*',
+    'subnet:*:holder:*',
+    'subnet:1:*',
+    'tao:holder:*',
+    `delegate:${HOTKEY}`,
+    'delegate:*',
+    'delegate:*:*',
+    'staker:*',
+  ];
+
+  for (const entry of valid) {
+    test(`valid: ${entry}`, () => {
+      expect(validateAllowedScopeFormat(entry)).toBe(true);
+    });
+  }
+
+  const invalid = [
+    'banana:*:foo',
+    'subnet:*:miner:*',
+    '*',
+    '*:*:*:*:*',
+    'subnet:1:hacker',
+    'tao:*:*:*',
+    // Wildcard shape matches a template, but a literal segment cannot satisfy
+    // the parameter type (numeric netuid, amount, or SS58 hotkey).
+    'delegate:*:abc',
+    '*:abc:miner',
+    'subnet:*:holder:',
+    'staker:*:*',
+    // Literal segments (`subnet`, `tao`, `delegate`, `staker`, `holder`) are
+    // part of a scope's identity and cannot be wildcarded — `*` only
+    // substitutes for parameter values, including enum params, never for
+    // literals.
+    '*:*:owner',
+    '*:1:miner',
+    'tao:*',
+  ];
+
+  for (const entry of invalid) {
+    test(`invalid: ${entry}`, () => {
+      expect(validateAllowedScopeFormat(entry)).toBe(false);
+    });
+  }
+});
+
 describe('describeScope', () => {
   test('subnet scopes', () => {
     expect(describeScope('subnet:1:validator')).toBe('Validator on Subnet 1');
@@ -192,17 +254,104 @@ describe('enforceClientScopes', () => {
   test('staker scope passes when explicitly listed', () => {
     expect(() => enforceClientScopes(['staker:1000'], ['staker:1000'])).not.toThrow();
   });
+
+  test('wildcard segment matches any value at that position', () => {
+    expect(() => enforceClientScopes(['subnet:42:owner'], ['subnet:*:owner'])).not.toThrow();
+  });
+
+  test('wildcard does not bridge differing literal segments', () => {
+    expect(() => enforceClientScopes(['subnet:42:miner'], ['subnet:*:owner'])).toThrow('not allowed');
+  });
+
+  test('wildcard rejects requests with extra segments', () => {
+    // 4-segment request never matches a 3-segment allowed entry, regardless of wildcards.
+    expect(() => enforceClientScopes(['subnet:42:owner:foo'], ['subnet:*:owner'])).toThrow();
+  });
+
+  test('wildcard composes with minAmount stripping', () => {
+    expect(() => enforceClientScopes(['subnet:42:holder:100'], ['subnet:*:holder'])).not.toThrow();
+  });
+
+  test('wildcard cannot substitute for a literal segment (subnet)', () => {
+    // `*` in the `subnet` slot is a literal-wildcard — would cross-authorize
+    // unrelated scope categories. Denied at admin time and at runtime.
+    expect(() => enforceClientScopes(['subnet:1:miner'], ['*:1:miner'])).toThrow('not allowed');
+    expect(() => enforceClientScopes(['subnet:42:owner'], ['*:*:owner'])).toThrow('not allowed');
+  });
+
+  test('wildcard cannot cross scope categories', () => {
+    // `subnet:1:*` is a valid `subnet_role` allowlist entry (role is a
+    // parameter), but cannot authorize a `subnet_holder` request because
+    // `holder` is a literal in subnet_holder, not a wildcardable param.
+    expect(() => enforceClientScopes(['subnet:1:holder'], ['subnet:1:*'])).toThrow('not allowed');
+  });
+
+  test('wildcard at the end segment', () => {
+    expect(() => enforceClientScopes(['subnet:1:miner'], ['subnet:1:*'])).not.toThrow();
+  });
+
+  test('allowlist mixing literal and wildcard entries', () => {
+    expect(() =>
+      enforceClientScopes(['subnet:7:owner', 'staker:1000'], ['subnet:*:owner', 'staker:1000']),
+    ).not.toThrow();
+  });
+
+  test('literal entry preserves prior strict semantics', () => {
+    expect(() => enforceClientScopes(['subnet:42:owner'], ['subnet:42:owner'])).not.toThrow();
+    expect(() => enforceClientScopes(['subnet:43:owner'], ['subnet:42:owner'])).toThrow('not allowed');
+  });
+
+  test('differing segment count is denied even with wildcards', () => {
+    expect(() => enforceClientScopes(['subnet:1:owner'], ['*:*:*:*'])).toThrow('not allowed');
+  });
+
+  test('literal segment mismatch denies otherwise-matching wildcard entry', () => {
+    expect(() => enforceClientScopes(['subnet:1:miner'], ['tao:*:miner'])).toThrow('not allowed');
+  });
+});
+
+describe('isScopeAllowedForClient', () => {
+  test('empty allowlist permits any scope', () => {
+    expect(isScopeAllowedForClient('subnet:1:miner', [])).toBe(true);
+  });
+
+  test('metadata scopes always allowed', () => {
+    expect(isScopeAllowedForClient('openid', ['subnet:1:miner'])).toBe(true);
+  });
+
+  test('literal allowlist entry permits exact match', () => {
+    expect(isScopeAllowedForClient('subnet:1:miner', ['subnet:1:miner'])).toBe(true);
+  });
+
+  test('wildcard allowlist entry permits matching scope', () => {
+    expect(isScopeAllowedForClient('subnet:42:owner', ['subnet:*:owner'])).toBe(true);
+  });
+
+  test('wildcard allowlist entry denies non-matching scope', () => {
+    expect(isScopeAllowedForClient('staker:1000', ['subnet:*:owner'])).toBe(false);
+  });
+
+  test('wildcard composes with minAmount stripping', () => {
+    expect(isScopeAllowedForClient('subnet:42:holder:100', ['subnet:*:holder'])).toBe(true);
+  });
+
+  test('unparseable requested scope is not allowed', () => {
+    expect(isScopeAllowedForClient('not-a-scope', ['subnet:*:owner'])).toBe(false);
+  });
+
+  test('role-enum wildcard allows all subnet_role roles but not subnet_holder', () => {
+    expect(validateAllowedScopeFormat('subnet:1:*')).toBe(true);
+    expect(isScopeAllowedForClient('subnet:1:miner', ['subnet:1:*'])).toBe(true);
+    expect(isScopeAllowedForClient('subnet:1:validator', ['subnet:1:*'])).toBe(true);
+    expect(isScopeAllowedForClient('subnet:1:owner', ['subnet:1:*'])).toBe(true);
+    expect(isScopeAllowedForClient('subnet:1:holder', ['subnet:1:*'])).toBe(false);
+    expect(isScopeAllowedForClient('subnet:1:holder:100', ['subnet:1:*'])).toBe(false);
+  });
 });
 
 describe('validateScopesForSignMethod', () => {
   test('sr25519 allows all scope types', () => {
-    const scopes = [
-      'openid',
-      'subnet:1:miner',
-      'tao:holder',
-      `delegate:${HOTKEY}`,
-      'staker:1000',
-    ];
+    const scopes = ['openid', 'subnet:1:miner', 'tao:holder', `delegate:${HOTKEY}`, 'staker:1000'];
     expect(() => validateScopesForSignMethod(scopes, 'sr25519')).not.toThrow();
   });
 
@@ -224,6 +373,11 @@ describe('validateScopesForSignMethod', () => {
 
   test('evm rejects staker scope', () => {
     expect(() => validateScopesForSignMethod(['staker:1000'], 'evm')).toThrow('not available for EVM');
+  });
+
+  test('unknown scope rejected (fail-closed)', () => {
+    expect(() => validateScopesForSignMethod(['not-a-scope'], 'evm')).toThrow();
+    expect(() => validateScopesForSignMethod(['not-a-scope'], 'sr25519')).toThrow();
   });
 });
 

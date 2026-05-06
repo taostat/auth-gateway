@@ -110,6 +110,11 @@ describe('OAuth 2.0 Authorization Server Metadata (RFC 8414)', () => {
     test('scopes_supported includes openid', () => {
       expect(doc.scopes_supported).toContain('openid');
     });
+
+    test('scopes_supported includes openid exactly once', () => {
+      const supported: string[] = doc.scopes_supported;
+      expect(supported.filter((s) => s === 'openid')).toHaveLength(1);
+    });
   });
 
   // ── URL format checks ─────────────────────────────────────────────

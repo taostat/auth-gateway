@@ -11,6 +11,7 @@ import {
   validateScopesForSignMethod,
   describeScopes,
   enforceClientScopes,
+  isScopeAllowedForClient,
   resolveSignerContext,
   resolveEvmSignerContext,
 } from '../../scopes';
@@ -36,11 +37,7 @@ import { testnetBannerHtml } from '../../util/testnet';
 import { AuthorizeQuerySchema, CallbackBodySchema, OAuthChallengeBodySchema } from '../../schemas/oauth';
 import { ChallengeResponseSchema } from '../../schemas/responses';
 import { sameOriginPreHandler } from '../../middleware/origin';
-import {
-  recordAuthorizeRequest,
-  recordScopeRequest,
-  recordChallenge,
-} from '../../metrics/registry';
+import { recordAuthorizeRequest, recordScopeRequest, recordChallenge } from '../../metrics/registry';
 import { recordEvent } from '../../db/events';
 
 export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
@@ -222,7 +219,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
           enforceClientScopes(scopes, client.allowed_scopes);
         } catch (err) {
           for (const s of scopes) {
-            if (!client.allowed_scopes.includes(s)) {
+            if (!isScopeAllowedForClient(s, client.allowed_scopes)) {
               recordScopeRequest({ client_id: client_id, scope: s, outcome: 'rejected' });
             }
           }

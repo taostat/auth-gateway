@@ -6,7 +6,7 @@ let cachedScopesSupported: string[] | null = null;
 
 function getScopesSupported(): string[] {
   if (!cachedScopesSupported) {
-    const scopes: string[] = ['openid'];
+    const scopes: string[] = [];
     for (const def of SCOPE_REGISTRY) {
       if (!def.testnet_supported && config.isTestnet) continue;
       scopes.push(...def.templates);
