@@ -151,7 +151,15 @@ export interface ScopeDefinition {
   templates: string[];
   /** Concrete-scope regex with named captures — derived from segments. */
   regex: RegExp;
-  /** Wildcard-aware regex matching valid `allowed_scopes` entries — derived from segments. Only `param` segments accept `*`; literals stay literal. */
+  /**
+   * Wildcard-aware regex matching valid `allowed_scopes` entries — derived from segments.
+   *
+   * `*` may replace parameter segments, including enum parameters (so
+   * `subnet:1:*` is a valid `subnet_role` entry that matches any role), but
+   * never literal segments. Runtime authorization is additionally gated by
+   * the requesting scope's `allowedEntryRegex`, so wildcards cannot
+   * authorize a different scope category with a similar tuple shape.
+   */
   allowedEntryRegex: RegExp;
   /** Zod schema for JSON Schema generation and front-end validation metadata. Not used for runtime validation. */
   params: z.ZodObject<z.ZodRawShape>;
@@ -174,7 +182,17 @@ type ScopeBuilderInput = Omit<
   'format' | 'templates' | 'regex' | 'allowedEntryRegex'
 >;
 
+function assertOptionalSegmentsAreTrailing(id: string, segments: Segment[]): void {
+  const firstOptional = segments.findIndex(isOptional);
+  if (firstOptional === -1) return;
+  const hasRequiredAfter = segments.slice(firstOptional + 1).some((s) => !isOptional(s));
+  if (hasRequiredAfter) {
+    throw new Error(`Scope "${id}": optional segments must be trailing`);
+  }
+}
+
 function defineScope(input: ScopeBuilderInput): ScopeDefinition {
+  assertOptionalSegmentsAreTrailing(input.id, input.segments);
   return {
     ...input,
     format: deriveFormat(input.segments),

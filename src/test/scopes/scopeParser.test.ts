@@ -173,7 +173,8 @@ describe('validateAllowedScopeFormat', () => {
     'staker:*:*',
     // Literal segments (`subnet`, `tao`, `delegate`, `staker`, `holder`) are
     // part of a scope's identity and cannot be wildcarded — `*` only
-    // substitutes for parameter values, never for literals.
+    // substitutes for parameter values, including enum params, never for
+    // literals.
     '*:*:owner',
     '*:1:miner',
     'tao:*',
@@ -337,6 +338,15 @@ describe('isScopeAllowedForClient', () => {
   test('unparseable requested scope is not allowed', () => {
     expect(isScopeAllowedForClient('not-a-scope', ['subnet:*:owner'])).toBe(false);
   });
+
+  test('role-enum wildcard allows all subnet_role roles but not subnet_holder', () => {
+    expect(validateAllowedScopeFormat('subnet:1:*')).toBe(true);
+    expect(isScopeAllowedForClient('subnet:1:miner', ['subnet:1:*'])).toBe(true);
+    expect(isScopeAllowedForClient('subnet:1:validator', ['subnet:1:*'])).toBe(true);
+    expect(isScopeAllowedForClient('subnet:1:owner', ['subnet:1:*'])).toBe(true);
+    expect(isScopeAllowedForClient('subnet:1:holder', ['subnet:1:*'])).toBe(false);
+    expect(isScopeAllowedForClient('subnet:1:holder:100', ['subnet:1:*'])).toBe(false);
+  });
 });
 
 describe('validateScopesForSignMethod', () => {
@@ -363,6 +373,11 @@ describe('validateScopesForSignMethod', () => {
 
   test('evm rejects staker scope', () => {
     expect(() => validateScopesForSignMethod(['staker:1000'], 'evm')).toThrow('not available for EVM');
+  });
+
+  test('unknown scope rejected (fail-closed)', () => {
+    expect(() => validateScopesForSignMethod(['not-a-scope'], 'evm')).toThrow();
+    expect(() => validateScopesForSignMethod(['not-a-scope'], 'sr25519')).toThrow();
   });
 });
 

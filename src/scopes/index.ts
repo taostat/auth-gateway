@@ -167,7 +167,7 @@ export async function verifyScopes(ctx: SignerContext, scopes: string[]): Promis
 export function validateScopesForSignMethod(scopes: string[], method: SignMethod): void {
   for (const scope of scopes) {
     const def = findDef(scope);
-    if (!def) continue;
+    if (!def) throw new InvalidScopeFormatError(scope);
     if (!supportsSignMethod(def, method)) {
       throw new AuthError(
         `Scope "${scope}" is not available for ${method.toUpperCase()} wallets`,
