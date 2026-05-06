@@ -32,58 +32,16 @@ export function validateScopeFormat(scope: string): boolean {
   return findDef(scope) !== undefined;
 }
 
-// Sample SS58 address used to validate that wildcard hotkey slots in allowed
-// templates substitute into a scope shape that matches the registry regex.
-const SS58_PLACEHOLDER = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
-
-function placeholderForTemplateSegment(templateSeg: string): string {
-  if (templateSeg === '{hotkey}') return SS58_PLACEHOLDER;
-  return '1';
-}
-
 /**
  * Validate a single `allowed_scopes` entry as configured by an admin.
  *
- * Accepts either a fully literal scope or a wildcard template that uses `*`
- * segments. A wildcard entry is structurally valid if its segment shape
- * matches at least one known scope template AND every non-`*` segment yields
- * a concrete scope that passes `validateScopeFormat` once `*` segments are
- * substituted with a value valid for that template position. This rejects
- * entries like `delegate:*:abc` or `subnet:*:holder:` whose literal segments
- * could never satisfy a real scope.
+ * Accepts either a fully literal scope or any entry whose segment shape
+ * matches some scope's `allowedEntryRegex` — which encodes the segments that
+ * scope is willing to have wildcarded (and the concrete patterns each
+ * non-wildcard segment must satisfy). Each scope owns its own rules.
  */
 export function validateAllowedScopeFormat(entry: string): boolean {
-  if (!entry.includes('*')) return validateScopeFormat(entry);
-  const entrySegs = entry.split(':');
-  for (const def of SCOPE_REGISTRY) {
-    if (def.isMetadata) continue;
-    for (const template of def.templates) {
-      const tmplSegs = template.split(':');
-      if (tmplSegs.length !== entrySegs.length) continue;
-      const concrete: string[] = [];
-      let shapeOk = true;
-      for (let i = 0; i < tmplSegs.length; i++) {
-        const t = tmplSegs[i]!;
-        const e = entrySegs[i]!;
-        const isParam = t === '*' || (t.startsWith('{') && t.endsWith('}'));
-        if (isParam) {
-          concrete.push(e === '*' ? placeholderForTemplateSegment(t) : e);
-          continue;
-        }
-        if (e === '*') {
-          concrete.push(t);
-          continue;
-        }
-        if (e !== t) {
-          shapeOk = false;
-          break;
-        }
-        concrete.push(e);
-      }
-      if (shapeOk && def.regex.test(concrete.join(':'))) return true;
-    }
-  }
-  return false;
+  return SCOPE_REGISTRY.some((def) => def.allowedEntryRegex.test(entry));
 }
 
 export function validateScopes(scopes: string[]): void {

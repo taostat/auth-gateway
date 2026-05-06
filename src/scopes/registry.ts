@@ -34,6 +34,8 @@ export interface ScopeDefinition {
   handlers: Record<string, ScopeHandler>;
   sign_methods: SignMethod[];
   testnet_supported: boolean;
+  /** Regex matching valid `allowed_scopes` entries for this scope shape — accepts both literal scopes and `*`-wildcarded segments. Each segment that the scope wants to make wildcardable should appear as `(?:\*|<pattern>)`. */
+  allowedEntryRegex: RegExp;
   /** Marks scopes that are identity-only (e.g. `openid`) — skipped by on-chain verification and excluded from JSON Schema discovery. */
   isMetadata?: boolean;
   /** Human-readable description used by the consent screen and event log. */
@@ -74,6 +76,7 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
     format: 'openid',
     templates: ['openid'],
     regex: /^openid$/,
+    allowedEntryRegex: /^openid$/,
     params: z.object({}).meta({ examples: [{}] }),
     parse: () => ({ type: 'metadata', role: 'openid', netuid: 0 }),
     handlers: {},
@@ -90,6 +93,7 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
     format: 'subnet:{netuid}:{role}',
     templates: ['subnet:*:miner', 'subnet:*:validator', 'subnet:*:owner'],
     regex: /^subnet:(\d+):(miner|owner|validator)$/,
+    allowedEntryRegex: /^(?:\*|subnet):(?:\*|\d+):(?:\*|miner|owner|validator)$/,
     params: z.object({
       netuid: netuid.describe('Subnet ID'),
       role: z.enum(['miner', 'validator', 'owner']).describe('Role on the subnet'),
@@ -114,6 +118,9 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
     format: 'subnet:{netuid}:holder[:{amount}]',
     templates: ['subnet:*:holder', 'subnet:*:holder:{min_alpha}'],
     regex: new RegExp(`^subnet:(\\d+):holder(?::(${AMT}))?$`),
+    allowedEntryRegex: new RegExp(
+      `^(?:\\*|subnet):(?:\\*|\\d+):(?:\\*|holder)(?::(?:\\*|${AMT}))?$`,
+    ),
     params: z.object({
       netuid: netuid.describe('Subnet ID'),
       amount: optionalPositiveAmount.describe('Minimum alpha balance (leave empty for any amount)'),
@@ -142,6 +149,7 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
     format: 'tao:holder[:{amount}]',
     templates: ['tao:holder', 'tao:holder:{min_tao}'],
     regex: new RegExp(`^tao:holder(?::(${AMT}))?$`),
+    allowedEntryRegex: new RegExp(`^(?:\\*|tao):(?:\\*|holder)(?::(?:\\*|${AMT}))?$`),
     params: z.object({
       amount: optionalPositiveAmount.describe('Minimum TAO balance (leave empty for any amount)'),
     }).meta({
@@ -169,6 +177,9 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
     format: 'delegate:{hotkey}[:{amount}]',
     templates: ['delegate:{hotkey}', 'delegate:{hotkey}:{min_tao}'],
     regex: new RegExp(`^delegate:(5[1-9A-HJ-NP-Za-km-z]{47})(?::(${AMT}))?$`),
+    allowedEntryRegex: new RegExp(
+      `^(?:\\*|delegate):(?:\\*|5[1-9A-HJ-NP-Za-km-z]{47})(?::(?:\\*|${AMT}))?$`,
+    ),
     params: z.object({
       hotkey: ss58Address.describe('Validator hotkey (SS58 address starting with 5, 48 characters)'),
       amount: optionalPositiveAmount.describe('Minimum delegated TAO'),
@@ -200,6 +211,7 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
     format: 'staker:{amount}',
     templates: ['staker:{min_tao}'],
     regex: new RegExp(`^staker:(${AMT})$`),
+    allowedEntryRegex: new RegExp(`^(?:\\*|staker):(?:\\*|${AMT})$`),
     params: z.object({
       amount: positiveAmount.describe('Minimum total staked TAO'),
     }).meta({
