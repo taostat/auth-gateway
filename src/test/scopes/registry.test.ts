@@ -189,6 +189,38 @@ describe('getScopeConfig', () => {
     }
   });
 
+  test('allowed_entry_parameters wraps each property in `*` oneOf', () => {
+    const cfg = getScopeConfig();
+    for (const cat of cfg.scope_categories) {
+      const concrete = cat.parameters as { properties?: Record<string, unknown> };
+      const wildcard = cat.allowed_entry_parameters as { properties?: Record<string, unknown> };
+      expect(wildcard).toBeDefined();
+      expect(wildcard.properties).toBeDefined();
+
+      const concreteProps = concrete.properties ?? {};
+      const wildcardProps = wildcard.properties ?? {};
+      expect(Object.keys(wildcardProps).sort()).toEqual(Object.keys(concreteProps).sort());
+
+      for (const [name, prop] of Object.entries(wildcardProps)) {
+        const wrapped = prop as { oneOf?: Array<Record<string, unknown>> };
+        expect(wrapped.oneOf).toBeDefined();
+        expect(wrapped.oneOf).toHaveLength(2);
+        expect(wrapped.oneOf?.[0]).toEqual({ const: '*' });
+        expect(wrapped.oneOf?.[1]).toEqual(concreteProps[name]);
+      }
+    }
+  });
+
+  test('allowed_entry_parameters preserves top-level keywords (type, required)', () => {
+    const cfg = getScopeConfig();
+    for (const cat of cfg.scope_categories) {
+      const concrete = cat.parameters as Record<string, unknown>;
+      const wildcard = cat.allowed_entry_parameters as Record<string, unknown>;
+      expect(wildcard['type']).toBe(concrete['type']);
+      expect(wildcard['required']).toEqual(concrete['required']);
+    }
+  });
+
   test('includes grant_types and sign_methods', () => {
     const cfg = getScopeConfig();
     expect(cfg.grant_types).toBe(GRANT_TYPES);
