@@ -1,3 +1,4 @@
+import { toJSONSchema } from 'zod/v4/core';
 import { SCOPE_REGISTRY, GRANT_TYPES, SIGN_METHODS, getScopeConfig, ScopeConfig } from '../../scopes/registry';
 
 describe('SCOPE_REGISTRY', () => {
@@ -112,6 +113,23 @@ describe('SCOPE_REGISTRY', () => {
       expect(parsed.type).toBe('staker');
       expect(parsed.minAmount).toBe(1_000_000_000_000n);
     });
+  });
+
+  test('segment params align with zod params (no drift)', () => {
+    // The runtime allowlist grammar is derived from `segments`; the
+    // discovery output's `parameters` and `allowed_entry_parameters` are
+    // derived from `params`. If the two declarations drift — a segment param
+    // missing from the zod object, or vice versa — the discovery output and
+    // the runtime grammar would disagree about which fields a scope has.
+    for (const def of SCOPE_REGISTRY) {
+      const segmentParams = def.segments
+        .filter((s): s is Extract<typeof s, { param: string }> => 'param' in s)
+        .map((s) => s.param)
+        .sort();
+      const schema = toJSONSchema(def.params) as { properties?: Record<string, unknown> };
+      const zodParams = Object.keys(schema.properties ?? {}).sort();
+      expect(zodParams).toEqual(segmentParams);
+    }
   });
 });
 
