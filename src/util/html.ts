@@ -173,6 +173,76 @@ export function mobileDetectScript(): string {
     }`;
 }
 
+/**
+ * Signature and address fields are filled by pasting from a terminal, which
+ * wraps long values. Neither value can contain whitespace, so it is stripped
+ * on blur — the user sees the same single-line value that gets submitted.
+ */
+export function pasteFieldScript(): string {
+  return `var PasteField = {
+      clean: function(value) { return value.replace(/\\s+/g, ''); },
+      bind: function(el) {
+        if (!el) return;
+        el.addEventListener('blur', function() { this.value = PasteField.clean(this.value); });
+      }
+    };`;
+}
+
+/**
+ * Shared signing-key guidance. The requested scopes decide whether the user
+ * must sign with a hotkey or a coldkey, so both signing pages say which one
+ * and bake the matching btcli flag into the command.
+ */
+export function signingKeyScript(): string {
+  return `var SigningKeyUi = {
+      renderHint: function(el, key) {
+        if (!el) return;
+        el.textContent = '';
+        if (key !== 'hotkey' && key !== 'coldkey') { el.style.display = 'none'; return; }
+        var lead = document.createElement('strong');
+        lead.textContent = key === 'hotkey' ? 'Sign with a hotkey.' : 'Sign with your coldkey.';
+        el.appendChild(lead);
+        el.appendChild(document.createTextNode(
+          key === 'hotkey'
+            ? ' These permissions are checked against a hotkey registered on the subnet \u2014 a coldkey signature will not match.'
+            : ' These permissions are checked against your coldkey.'
+        ));
+        el.style.display = 'block';
+      },
+      renderFlowHint: function(el, key) {
+        if (!el) return;
+        el.textContent = key === 'hotkey'
+          ? 'Both sign with your Bittensor wallet. btcli needs no extension.'
+          : 'Both sign with your Bittensor wallet. btcli needs no extension and can use your coldkey.';
+      },
+      command: function(nonce, key) {
+        var flag = key === 'hotkey' ? ' --use-hotkey' : key === 'coldkey' ? ' --no-use-hotkey' : '';
+        return "btcli wallet sign" + flag + " --message '" + nonce + "'";
+      },
+      renderNote: function(el, key) {
+        if (!el) return;
+        el.textContent = '';
+        function text(t) { return document.createTextNode(t); }
+        function code(t) { var c = document.createElement('code'); c.textContent = t; return c; }
+        // The key is already named above the permissions and the flag is in
+        // the command, so the note only covers what btcli will ask for.
+        if (key === 'hotkey') {
+          el.appendChild(text('Run this in your terminal. btcli asks which wallet and hotkey to use.'));
+          return;
+        }
+        if (key === 'coldkey') {
+          el.appendChild(text('Run this in your terminal. btcli asks which wallet to use.'));
+          return;
+        }
+        el.appendChild(text('Run this in your terminal. btcli asks which wallet to use and whether to sign with your coldkey or a hotkey. Add '));
+        el.appendChild(code('--no-use-hotkey'));
+        el.appendChild(text(' to sign with the coldkey, or '));
+        el.appendChild(code('--use-hotkey'));
+        el.appendChild(text(' for a hotkey.'));
+      }
+    };`;
+}
+
 export function walletCheckerScript(): string {
   return `var WalletChecker = {
       configs: {
