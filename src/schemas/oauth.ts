@@ -9,6 +9,13 @@ export const AuthorizeQuerySchema = z.object({
   code_challenge: z.string().optional(),
   code_challenge_method: z.string().optional(),
   nonce: z.string().optional(),
+  /**
+   * Presentation hint for the authorize page. "cli" opens the btcli signing
+   * view and requests the challenge immediately; "browser" shows the browser
+   * wallet view. Omitted keeps the default (browser view with a CLI switch).
+   * Validated in the route so the user sees the styled HTML error page.
+   */
+  wallet_mode: z.string().optional(),
 });
 
 export const CallbackBodySchema = z.object({

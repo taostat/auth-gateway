@@ -115,6 +115,12 @@ async function getOAuthChallenge(opts: {
   return { sessionId, nonce };
 }
 
+function sessionIdOf(payload: string): string {
+  const match = payload.match(/sessionId: "([^"]+)"/);
+  if (!match?.[1]) throw new Error('No authorize session id in page');
+  return match[1];
+}
+
 describe('OAuth Routes', () => {
   describe('GET /v1/oauth/authorize', () => {
     test('returns HTML page with valid registered client', async () => {
@@ -171,6 +177,80 @@ describe('OAuth Routes', () => {
         url: `/v1/oauth/authorize?client_id=public-test-client&redirect_uri=http://localhost:3001/callback&response_type=code&code_challenge=${challenge}&code_challenge_method=S256`,
       });
       expect(res.statusCode).toBe(200);
+    });
+
+    describe('wallet_mode', () => {
+      const authorizeUrl = (walletMode?: string): string =>
+        `/v1/oauth/authorize?client_id=${TEST_CLIENT_ID}&redirect_uri=http://localhost:3001/callback&response_type=code` +
+        (walletMode === undefined ? '' : `&wallet_mode=${encodeURIComponent(walletMode)}`);
+
+      test('omitted opens the browser wallet view', async () => {
+        const res = await app.inject({ method: 'GET', url: authorizeUrl() });
+        expect(res.statusCode).toBe(200);
+        expect(res.payload).toContain('<div id="browser-flow">');
+        expect(res.payload).toContain('<div id="cli-flow" class="cli-section" style="display:none;">');
+      });
+
+      test('cli opens the CLI signing view', async () => {
+        const res = await app.inject({ method: 'GET', url: authorizeUrl('cli') });
+        expect(res.statusCode).toBe(200);
+        expect(res.payload).toContain('<div id="browser-flow" style="display:none;">');
+        expect(res.payload).toContain('<div id="cli-flow" class="cli-section">');
+        expect(res.payload).toContain('walletMode: "cli"');
+      });
+
+      test('browser opens the browser wallet view', async () => {
+        const res = await app.inject({ method: 'GET', url: authorizeUrl('browser') });
+        expect(res.statusCode).toBe(200);
+        expect(res.payload).toContain('<div id="browser-flow">');
+        expect(res.payload).toContain('walletMode: "browser"');
+      });
+
+      test('both signing views stay reachable in either mode', async () => {
+        for (const mode of [undefined, 'cli', 'browser']) {
+          const res = await app.inject({ method: 'GET', url: authorizeUrl(mode) });
+          expect(res.payload).toContain('id="link-show-cli"');
+          expect(res.payload).toContain('id="link-show-browser"');
+        }
+      });
+
+      test('rejects an unknown value with 400', async () => {
+        const res = await app.inject({ method: 'GET', url: authorizeUrl('terminal') });
+        expect(res.statusCode).toBe(400);
+        expect(res.payload).toContain('Invalid wallet_mode');
+      });
+
+      test('rejects an empty value with 400', async () => {
+        const res = await app.inject({ method: 'GET', url: authorizeUrl('') });
+        expect(res.statusCode).toBe(400);
+        expect(res.payload).toContain('Invalid wallet_mode');
+      });
+
+      test('does not change the issued session, scopes or PKCE binding', async () => {
+        const verifier = crypto.randomBytes(32).toString('base64url');
+        const challenge = generateS256Challenge(verifier);
+        const query =
+          `client_id=public-test-client&redirect_uri=http://localhost:3001/callback&response_type=code` +
+          `&scope=openid&code_challenge=${challenge}&code_challenge_method=S256`;
+
+        const [browserRes, cliRes] = await Promise.all([
+          app.inject({ method: 'GET', url: `/v1/oauth/authorize?${query}` }),
+          app.inject({ method: 'GET', url: `/v1/oauth/authorize?${query}&wallet_mode=cli` }),
+        ]);
+
+        expect(browserRes.statusCode).toBe(200);
+        expect(cliRes.statusCode).toBe(200);
+
+        const { getAuthorizeSession } = require('../../db/authorizeSessions');
+        const browserSession = await getAuthorizeSession(sessionIdOf(browserRes.payload));
+        const cliSession = await getAuthorizeSession(sessionIdOf(cliRes.payload));
+
+        expect(cliSession.clientId).toBe(browserSession.clientId);
+        expect(cliSession.redirectUri).toBe(browserSession.redirectUri);
+        expect(cliSession.scopes).toEqual(browserSession.scopes);
+        expect(cliSession.codeChallenge).toBe(challenge);
+        expect(cliSession.codeChallengeMethod).toBe('S256');
+      });
     });
   });
 

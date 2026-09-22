@@ -153,6 +153,28 @@ async function doEvmOAuthFlow(
 describe('EVM OAuth Routes', () => {
   const evmAddress = getTestEvmAddress();
 
+  describe('GET /v1/oauth/authorize', () => {
+    test('ignores wallet_mode=cli — EVM clients have no CLI signing view', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/oauth/authorize?client_id=${EVM_CLIENT_ID}&redirect_uri=http://localhost:3001/callback&response_type=code&scope=openid&wallet_mode=cli`,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.payload).toContain('<div id="browser-flow">');
+      expect(res.payload).toContain('walletMode: "browser"');
+      expect(res.payload).not.toContain('id="cli-flow"');
+    });
+
+    test('rejects an unknown wallet_mode with 400', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/oauth/authorize?client_id=${EVM_CLIENT_ID}&redirect_uri=http://localhost:3001/callback&response_type=code&scope=openid&wallet_mode=terminal`,
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.payload).toContain('Invalid wallet_mode');
+    });
+  });
+
   describe('POST /v1/oauth/callback', () => {
     test('rejects sr25519 address for EVM client', async () => {
       const ss58 = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';

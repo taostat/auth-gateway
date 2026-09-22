@@ -40,6 +40,14 @@ import { sameOriginPreHandler } from '../../middleware/origin';
 import { recordAuthorizeRequest, recordScopeRequest, recordChallenge } from '../../metrics/registry';
 import { recordEvent } from '../../db/events';
 
+/** Presentation modes accepted by `wallet_mode` on the authorize page. */
+const WALLET_MODES = ['cli', 'browser'] as const;
+type WalletMode = (typeof WALLET_MODES)[number];
+
+function isWalletMode(value: string): value is WalletMode {
+  return (WALLET_MODES as readonly string[]).includes(value);
+}
+
 export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{
     Body: z.infer<typeof OAuthChallengeBodySchema>;
@@ -137,6 +145,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         code_challenge,
         code_challenge_method,
         nonce: oidcNonce,
+        wallet_mode,
       } = request.query;
 
       if (!client_id || !redirect_uri) {
@@ -149,6 +158,15 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
 
       if (response_type !== 'code') {
         return sendHtmlError(reply, 400, 'Bad Request', 'Unsupported response_type. Only "code" is supported.');
+      }
+
+      if (wallet_mode !== undefined && !isWalletMode(wallet_mode)) {
+        return sendHtmlError(
+          reply,
+          400,
+          'Bad Request',
+          `Invalid wallet_mode. Allowed values: ${WALLET_MODES.join(', ')}.`,
+        );
       }
 
       // Validate client_id
@@ -268,6 +286,12 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       const clientSignMethod = getClientSignMethod(client.allowed_sign_methods);
       const isEvmClient = clientSignMethod === 'evm';
 
+      // Purely a presentation hint: it picks which view opens first, and both
+      // views stay reachable. EVM clients have no CLI signing view, so the hint
+      // is ignored for them.
+      const startInCli = wallet_mode === 'cli' && !isEvmClient;
+      const effectiveWalletMode: WalletMode = startInCli ? 'cli' : 'browser';
+
       const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -299,42 +323,43 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         <label>Select account:</label>
         <select class="account-select" id="account-select"></select>
       </div>
-      <div class="btn-row">
-        <button class="btn-deny" id="btn-deny">Deny</button>
+      <div class="btn-stack">
         <button class="btn-authorize" id="btn-authorize" disabled>Sign with Ethereum</button>
+        <button class="btn-deny" id="btn-deny">Deny</button>
       </div>
     </div>`
-        : `<div id="browser-flow">
+        : `<div id="browser-flow"${startInCli ? ' style="display:none;"' : ''}>
       <div class="account-picker" id="account-picker" style="display:none;">
         <label>Select account:</label>
         <select class="account-select" id="account-select"></select>
       </div>
-      <div class="btn-row">
+      <div class="btn-stack">
+        <button class="btn-authorize" id="btn-authorize" disabled>Sign with browser extension</button>
+        <button type="button" class="btn-alt" id="link-show-cli"><span class="prompt">&gt;_</span> Sign with btcli in your terminal</button>
         <button class="btn-deny" id="btn-deny">Deny</button>
-        <button class="btn-authorize" id="btn-authorize" disabled>Sign with Bittensor wallet</button>
       </div>
-      <div class="cli-toggle"><a id="link-show-cli">Sign with CLI</a></div>
+      <p class="flow-hint">Both sign with your Bittensor wallet. btcli needs no extension and can use your coldkey.</p>
     </div>
-    <div id="cli-flow" class="cli-section" style="display:none;">
-      <div class="cli-step">Step 1 &mdash; Sign the message</div>
+    <div id="cli-flow" class="cli-section"${startInCli ? '' : ' style="display:none;"'}>
+      <div class="cli-step">Step 1 &mdash; Sign the message with btcli</div>
       <div style="position:relative;">
         <div class="cmd-block" id="cli-cmd">Loading...</div>
         <button class="cmd-copy" id="btn-copy">Copy</button>
       </div>
-      <p style="color:var(--text-muted);font-size:0.8rem;margin-top:6px;">Run this command in your terminal. btcli will prompt you to select a wallet and hotkey.</p>
+      <p class="cli-note">Run this in your terminal. btcli asks which wallet to use and whether to sign with your coldkey or a hotkey. Add <code>--no-use-hotkey</code> to sign with the coldkey, or <code>--use-hotkey</code> for a hotkey.</p>
       <div class="cli-step">Step 2 &mdash; Enter your signature and address</div>
-      <label style="font-size:0.85rem;color:var(--text-secondary);">Signature</label>
+      <label class="cli-label">Signature</label>
       <textarea class="sig-input" id="cli-signature" placeholder="paste signature from btcli"></textarea>
-      <label style="font-size:0.85rem;color:var(--text-secondary);margin-top:8px;display:block;">SS58 Address</label>
+      <label class="cli-label" style="margin-top:8px;">SS58 address of the key you signed with</label>
       <input class="addr-input" type="text" id="cli-address" placeholder="5Grw..." />
-      <div class="btn-row">
-        <button class="btn-deny" id="btn-cli-deny">Deny</button>
+      <div class="btn-stack">
         <button class="btn-authorize" id="btn-cli-submit">Authorize</button>
+        <button type="button" class="btn-alt" id="link-show-browser">Sign with browser extension</button>
+        <button class="btn-deny" id="btn-cli-deny">Deny</button>
       </div>
       <div id="cli-refresh" style="display:none;text-align:center;margin-top:8px;">
         <a id="link-cli-refresh" style="cursor:pointer;">Get new challenge</a>
       </div>
-      <div class="cli-toggle"><a id="link-show-browser">Back to browser wallet</a></div>
     </div>`
     }
     <div id="status" class="status"></div>
@@ -347,14 +372,30 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       redirectUri: ${serializeForInlineScript(redirect_uri)},
       state: ${serializeForInlineScript(state || '')},
       signMethod: ${serializeForInlineScript(clientSignMethod)},
+      walletMode: ${serializeForInlineScript(effectiveWalletMode)},
     };
 
     let cliNonce = null;
     let cliExpiryTimer = null;
 
     ${mobileDetectScript()}
-    ${walletCheckerScript(clientSignMethod)}
+    ${walletCheckerScript()}
     var walletLabel = WalletChecker.configs[CONFIG.signMethod].label;
+
+    var signing = false;
+
+    // Never re-enable or relabel the button while a signature is in flight or
+    // an account is being picked — the check would hand the user a second click.
+    function runWalletCheck() {
+      if (signing || pickingAccount) return;
+      WalletChecker.check(CONFIG.signMethod);
+    }
+
+    // Extensions inject late, so re-check after the page settles.
+    function scheduleWalletCheck() {
+      setTimeout(runWalletCheck, 500);
+      setTimeout(runWalletCheck, 2000);
+    }
 
     function deny() {
       const params = new URLSearchParams({ error: 'access_denied' });
@@ -372,6 +413,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       const btn = document.getElementById('btn-authorize');
       btn.disabled = true;
       btn.textContent = 'Connecting...';
+      signing = true;
       try {
         var address, signature, nonce;
 
@@ -474,6 +516,8 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         showError(err.message);
         btn.disabled = false;
         btn.textContent = walletLabel;
+      } finally {
+        signing = false;
       }
     }
 
@@ -507,13 +551,21 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         }, expiresMs);
       } catch (err) {
         showError(err.message);
-        showBrowserFlow();
+        if (CONFIG.walletMode === 'cli') {
+          document.getElementById('cli-cmd').textContent = 'Could not get a challenge. Try again below.';
+          document.getElementById('btn-cli-submit').disabled = true;
+          document.getElementById('cli-refresh').style.display = 'block';
+        } else {
+          showBrowserFlow();
+        }
       }
     }
 
     function showBrowserFlow() {
       document.getElementById('browser-flow').style.display = 'block';
       document.getElementById('cli-flow').style.display = 'none';
+      runWalletCheck();
+      scheduleWalletCheck();
       cliNonce = null;
       if (cliExpiryTimer) { clearTimeout(cliExpiryTimer); cliExpiryTimer = null; }
     }
@@ -615,6 +667,14 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
     if (cliRefreshEl) cliRefreshEl.addEventListener('click', showCliFlow);
     var showBrowserEl = document.getElementById('link-show-browser');
     if (showBrowserEl) showBrowserEl.addEventListener('click', showBrowserFlow);
+
+    // wallet_mode=cli opens CLI signing directly: fetch the challenge now and
+    // never touch the wallet extension.
+    if (CONFIG.walletMode === 'cli') {
+      showCliFlow();
+    } else {
+      scheduleWalletCheck();
+    }
   </script>
 </body>
 </html>`;

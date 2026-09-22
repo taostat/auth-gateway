@@ -177,7 +177,7 @@ export function walletCheckerScript(autoRun?: SignMethod): string {
   const fn = `var WalletChecker = {
       configs: {
         sr25519: {
-          label: 'Sign with Bittensor wallet',
+          label: 'Sign with browser extension',
           mobileLabel: 'Desktop required',
           mobileTitle: 'Wallet signing requires a desktop browser',
           noWalletLabel: 'No wallet detected',
@@ -207,7 +207,7 @@ export function walletCheckerScript(autoRun?: SignMethod): string {
         var btn = document.getElementById('btn-authorize');
         var banner = document.getElementById(cfg.bannerId);
         var mobileNotice = document.getElementById(cfg.mobileNoticeId);
-        var cliLink = document.getElementById('link-show-cli');
+        var cliEntry = document.getElementById('cli-entry');
 
         // Hide the other method's banner
         var otherKey = method === 'evm' ? 'sr25519' : 'evm';
@@ -217,7 +217,7 @@ export function walletCheckerScript(autoRun?: SignMethod): string {
         if (otherBanner) otherBanner.style.display = 'none';
         if (otherMobile) otherMobile.style.display = 'none';
 
-        if (cliLink) cliLink.style.display = cfg.showCli ? '' : 'none';
+        if (cliEntry) cliEntry.style.display = cfg.showCli ? '' : 'none';
 
         if (isMobileDevice()) {
           if (banner) banner.style.display = 'none';

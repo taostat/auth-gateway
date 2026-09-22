@@ -256,26 +256,37 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
         <label>Select account:</label>
         <select class="account-select" id="account-select"></select>
       </div>
-      <button class="btn-full" id="btn-authorize" disabled>Sign with Bittensor wallet</button>
-      <div class="cli-toggle"><a id="link-show-cli">Sign with CLI</a></div>
+      <div class="btn-stack">
+        <button class="btn-full" id="btn-authorize" disabled>Sign with browser extension</button>
+      </div>
+      <div id="cli-entry">
+        <div class="btn-stack">
+          <button type="button" class="btn-alt" id="link-show-cli"><span class="prompt">&gt;_</span> Sign with btcli in your terminal</button>
+        </div>
+        <p class="flow-hint">Both sign with your Bittensor wallet. btcli needs no extension and can use your coldkey.</p>
+      </div>
     </div>
     <div id="cli-flow" class="cli-section" style="display:none;">
-      <div class="cli-step">Step 1 &mdash; Sign the message</div>
+      <div class="cli-step">Step 1 &mdash; Sign the message with btcli</div>
       <div style="position:relative;">
         <div class="cmd-block" id="cli-cmd">Loading...</div>
         <button class="cmd-copy" id="btn-copy">Copy</button>
       </div>
-      <p style="color:var(--text-muted);font-size:0.8rem;margin-top:6px;">Run this command in your terminal. btcli will prompt you to select a wallet and hotkey.</p>
+      <p class="cli-note">Run this in your terminal. btcli asks which wallet to use and whether to sign with your coldkey or a hotkey. Add <code>--no-use-hotkey</code> to sign with the coldkey, or <code>--use-hotkey</code> for a hotkey.</p>
       <div class="cli-step">Step 2 &mdash; Enter your signature and address</div>
-      <label style="font-size:0.85rem;color:var(--text-secondary);">Signature</label>
+      <label class="cli-label">Signature</label>
       <textarea class="sig-input" id="cli-signature" placeholder="paste signature from btcli"></textarea>
-      <label style="font-size:0.85rem;color:var(--text-secondary);margin-top:8px;display:block;">SS58 Address</label>
+      <label class="cli-label" style="margin-top:8px;">SS58 address of the key you signed with</label>
       <input class="addr-input" type="text" id="cli-address" placeholder="5Grw..." />
-      <button class="btn-full" id="btn-cli-submit">Authorize</button>
+      <div class="btn-stack">
+        <button class="btn-full" id="btn-cli-submit">Authorize</button>
+      </div>
       <div id="cli-refresh" style="display:none;text-align:center;margin-top:8px;">
         <a id="link-cli-refresh" style="cursor:pointer;">Get new challenge</a>
       </div>
-      <div class="cli-toggle"><a id="link-show-browser">Back to browser wallet</a></div>
+      <div class="btn-stack">
+        <button type="button" class="btn-alt" id="link-show-browser">Sign with browser extension</button>
+      </div>
     </div>
     <div id="status" class="status"></div>
   </div>
@@ -302,7 +313,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
       cliNonce = null;
       var cliFl = document.getElementById('cli-flow');
       if (cliFl && cliFl.style.display !== 'none') {
-        document.getElementById('cli-cmd').textContent = 'Enter code above, then click Sign with CLI';
+        document.getElementById('cli-cmd').textContent = 'Enter the code above, then sign with btcli';
         showBrowserFlow();
       }
       const val = document.getElementById('user-code').value.trim().toUpperCase();
