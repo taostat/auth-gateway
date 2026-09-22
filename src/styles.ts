@@ -126,6 +126,18 @@ button:disabled { background: #262626 !important; color: #5a5a5a !important; cur
 .scope-item:last-child { border-bottom: none; }
 .scope-item .raw { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); word-break: break-all; }
 .no-scopes { color: var(--text-secondary); font-style: italic; }
+/* Which key to sign with, derived from the requested scopes */
+.key-hint {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(0,219,188,0.08);
+  border: 1px solid rgba(0,219,188,0.2);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.key-hint strong { color: var(--accent); font-weight: 500; }
 
 /* Forms */
 input, select {
@@ -340,31 +352,84 @@ body.narrow { max-width: 480px; margin: 60px auto; }
 .cli-note { color: var(--text-muted); font-size: 0.8rem; margin-top: 6px; line-height: 1.5; }
 .cli-note code { font-size: 0.78rem; }
 .cli-label { font-size: 0.85rem; color: var(--text-secondary); display: block; }
-.cmd-block {
-  background: var(--bg);
+.cmd-wrap {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 12px 48px 12px 12px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.cmd-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.cmd-bar-label {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.cmd-block {
+  padding: 12px;
   font-family: var(--font-mono);
   font-size: 0.82rem;
   line-height: 1.5;
   white-space: pre-wrap;
-  word-break: break-all;
+  word-break: normal;
+  overflow-wrap: anywhere;
 }
 .cmd-copy {
-  position: absolute;
-  top: 8px;
-  right: 8px;
   background: var(--border);
   border: none;
   color: var(--text-secondary);
   border-radius: 4px;
-  padding: 4px 8px;
+  padding: 4px 10px;
   font-size: 0.75rem;
   cursor: pointer;
   font-family: var(--font);
 }
 .cmd-copy:hover { background: #333; color: var(--text); }
+
+/* Terminal success panel (device verify) */
+.done-panel { text-align: center; }
+.done-check {
+  width: 56px;
+  height: 56px;
+  margin: 4px auto 18px auto;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(105,240,174,0.12);
+  border: 1px solid rgba(105,240,174,0.35);
+  color: var(--success);
+}
+.done-panel h1 { font-size: 1.25rem; margin-bottom: 8px; }
+.done-sub { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 20px; }
+.done-meta { border-top: 1px solid var(--border); text-align: left; }
+.done-row {
+  display: flex;
+  gap: 16px;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.done-row:last-child { border-bottom: none; }
+.done-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.done-value { font-size: 0.85rem; color: var(--text); text-align: right; overflow-wrap: anywhere; }
+.done-value.mono { font-family: var(--font-mono); }
 .sig-input {
   width: 100%;
   min-height: 60px;

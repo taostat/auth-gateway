@@ -9,6 +9,7 @@ import {
   validateScopes,
   validateScopesForSignMethod,
   describeScopes,
+  resolveSigningKey,
   enforceClientScopes,
   resolveSignerContext,
 } from '../scopes';
@@ -28,6 +29,8 @@ import {
   walletBannersHtml,
   mobileDetectScript,
   walletCheckerScript,
+  signingKeyScript,
+  pasteFieldScript,
   authHeaderHtml,
   poweredByHtml,
   starryBackgroundHtml,
@@ -204,6 +207,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
           scopes: found.scopes,
           descriptions: describeScopes(found.scopes),
           sign_method: getClientSignMethod(deviceClient?.allowed_sign_methods),
+          signing_key: resolveSigningKey(found.scopes),
         });
       }
 
@@ -244,12 +248,14 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
   ${authHeaderHtml}
   ${walletBannersHtml()}
   <div class="auth-card">
+    <div id="form-flow">
     <h1>Device Authorization</h1>
     <p style="margin-bottom:1rem;color:var(--text-secondary);font-size:0.95rem;">Enter the code shown on your device:</p>
     <input class="code-input" type="text" id="user-code" placeholder="ABCD-1234" value="${escapeHtml(user_code || '')}" maxlength="9" />
     <div id="scopes-box" class="scopes-box" style="display:none;">
       <h3>Requested Permissions</h3>
       <div id="scopes-list"></div>
+      <p id="key-hint" class="key-hint" style="display:none;"></p>
     </div>
     <div id="browser-flow">
       <div class="account-picker" id="account-picker" style="display:none;">
@@ -263,16 +269,19 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
         <div class="btn-stack">
           <button type="button" class="btn-alt" id="link-show-cli"><span class="prompt">&gt;_</span> Sign with btcli in your terminal</button>
         </div>
-        <p class="flow-hint">Both sign with your Bittensor wallet. btcli needs no extension and can use your coldkey.</p>
+        <p class="flow-hint" id="flow-hint">Both sign with your Bittensor wallet. btcli needs no extension and can use your coldkey.</p>
       </div>
     </div>
     <div id="cli-flow" class="cli-section" style="display:none;">
       <div class="cli-step">Step 1 &mdash; Sign the message with btcli</div>
-      <div style="position:relative;">
+      <div class="cmd-wrap">
+        <div class="cmd-bar">
+          <span class="cmd-bar-label">terminal</span>
+          <button type="button" class="cmd-copy" id="btn-copy">Copy</button>
+        </div>
         <div class="cmd-block" id="cli-cmd">Loading...</div>
-        <button class="cmd-copy" id="btn-copy">Copy</button>
       </div>
-      <p class="cli-note">Run this in your terminal. btcli asks which wallet to use and whether to sign with your coldkey or a hotkey. Add <code>--no-use-hotkey</code> to sign with the coldkey, or <code>--use-hotkey</code> for a hotkey.</p>
+      <p class="cli-note" id="cli-note"></p>
       <div class="cli-step">Step 2 &mdash; Enter your signature and address</div>
       <label class="cli-label">Signature</label>
       <textarea class="sig-input" id="cli-signature" placeholder="paste signature from btcli"></textarea>
@@ -289,6 +298,24 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
       </div>
     </div>
     <div id="status" class="status"></div>
+    </div>
+    <div id="done" class="done-panel" style="display:none;">
+      <div class="done-check">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12.5 9.5 18 20 6"/></svg>
+      </div>
+      <h1>Device authorized</h1>
+      <p class="done-sub">You can close this window and return to your device.</p>
+      <div class="done-meta">
+        <div class="done-row">
+          <span class="done-label">Signed as</span>
+          <span class="done-value mono" id="done-address"></span>
+        </div>
+        <div class="done-row" id="done-grants-row" style="display:none;">
+          <span class="done-label">Granted</span>
+          <span class="done-value" id="done-grants"></span>
+        </div>
+      </div>
+    </div>
   </div>
   ${poweredByHtml}
 
@@ -297,10 +324,14 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
     let cliNonce = null;
     let cliExpiryTimer = null;
     let loadedScopes = [];
+    let loadedDescriptions = [];
     let loadedSignMethod = 'sr25519';
+    let loadedSigningKey = 'any';
 
     ${mobileDetectScript()}
     ${walletCheckerScript()}
+    ${signingKeyScript()}
+    ${pasteFieldScript()}
 
     // Auto-load scopes if user_code is pre-filled
     if (document.getElementById('user-code').value.trim()) {
@@ -310,7 +341,10 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
     function onCodeInput() {
       clearTimeout(debounceTimer);
       loadedScopes = [];
+      loadedDescriptions = [];
+      loadedSigningKey = 'any';
       cliNonce = null;
+      clearStatus();
       var cliFl = document.getElementById('cli-flow');
       if (cliFl && cliFl.style.display !== 'none') {
         document.getElementById('cli-cmd').textContent = 'Enter the code above, then sign with btcli';
@@ -330,7 +364,9 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
         if (!res.ok) return;
         const data = await res.json();
         loadedScopes = data.scopes || [];
+        loadedDescriptions = data.descriptions || [];
         loadedSignMethod = data.sign_method || 'sr25519';
+        loadedSigningKey = data.signing_key || 'any';
         const box = document.getElementById('scopes-box');
         const list = document.getElementById('scopes-list');
         list.innerHTML = '';
@@ -351,6 +387,8 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
           box.style.display = 'block';
         }
 
+        SigningKeyUi.renderHint(document.getElementById('key-hint'), loadedSigningKey);
+        SigningKeyUi.renderFlowHint(document.getElementById('flow-hint'), loadedSigningKey);
         WalletChecker.check(loadedSignMethod);
       } catch {}
     }
@@ -380,6 +418,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
 
     async function connectAndSign() {
       const btn = document.getElementById('btn-authorize');
+      clearStatus();
       btn.disabled = true;
       btn.textContent = 'Connecting...';
       const btnLabel = WalletChecker.configs[loadedSignMethod].label;
@@ -474,7 +513,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
 
         if (!confirmRes.ok) { const e3 = await confirmRes.json(); throw new Error(e3.message); }
 
-        showSuccess('Device authorized! You can close this window.');
+        showDone(address);
       } catch (err) {
         showError(err.message);
         btn.disabled = false;
@@ -499,7 +538,10 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
           if (!scopeRes.ok) throw new Error('Unable to load requested permissions. Check the code and try again.');
           const scopeData = await scopeRes.json();
           loadedScopes = scopeData.scopes || [];
+          loadedDescriptions = scopeData.descriptions || [];
+          loadedSigningKey = scopeData.signing_key || 'any';
         }
+        SigningKeyUi.renderNote(document.getElementById('cli-note'), loadedSigningKey);
 
         const res = await fetch('/v1/device/approve', {
           method: 'POST',
@@ -509,7 +551,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
         if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
         const data = await res.json();
         cliNonce = data.nonce;
-        document.getElementById('cli-cmd').textContent = "btcli wallet sign --message '" + data.nonce + "'";
+        document.getElementById('cli-cmd').textContent = SigningKeyUi.command(data.nonce, loadedSigningKey);
 
         if (cliExpiryTimer) clearTimeout(cliExpiryTimer);
         const expiresMs = (data.expires_in || 120) * 1000;
@@ -537,7 +579,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
     function copyCommand() {
       const text = document.getElementById('cli-cmd').textContent;
       navigator.clipboard.writeText(text).then(function() {
-        const btn = document.querySelector('.cmd-copy');
+        const btn = document.getElementById('btn-copy');
         btn.textContent = 'Copied!';
         setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
       });
@@ -545,12 +587,13 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
 
     async function submitCliSignature() {
       const btn = document.getElementById('btn-cli-submit');
+      clearStatus();
       btn.disabled = true;
       btn.textContent = 'Verifying...';
       try {
         const userCode = document.getElementById('user-code').value.trim().toUpperCase();
-        const address = document.getElementById('cli-address').value.trim();
-        const signature = document.getElementById('cli-signature').value.trim();
+        const address = PasteField.clean(document.getElementById('cli-address').value);
+        const signature = PasteField.clean(document.getElementById('cli-signature').value);
 
         if (!address) { showError('Please enter your SS58 address'); btn.disabled = false; btn.textContent = 'Authorize'; return; }
         if (!signature) { showError('Please enter the signature'); btn.disabled = false; btn.textContent = 'Authorize'; return; }
@@ -563,8 +606,7 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
         });
         if (!confirmRes.ok) { const e = await confirmRes.json(); throw new Error(e.message); }
 
-        if (cliExpiryTimer) { clearTimeout(cliExpiryTimer); cliExpiryTimer = null; }
-        showSuccess('Device authorized! You can close this window.');
+        showDone(address);
       } catch (err) {
         showError(err.message);
         btn.disabled = false;
@@ -575,10 +617,29 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
     function showError(msg) {
       const el = document.getElementById('status');
       el.className = 'status error'; el.textContent = msg;
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
-    function showSuccess(msg) {
+    function clearStatus() {
       const el = document.getElementById('status');
-      el.className = 'status success'; el.textContent = msg;
+      el.className = 'status'; el.textContent = '';
+    }
+    function shortenAddress(addr) {
+      return addr.length > 20 ? addr.slice(0, 8) + '\u2026' + addr.slice(-8) : addr;
+    }
+    /** Authorization is final: replace the form with a confirmation of what was granted. */
+    function showDone(address) {
+      clearTimeout(debounceTimer);
+      if (cliExpiryTimer) { clearTimeout(cliExpiryTimer); cliExpiryTimer = null; }
+      const addrEl = document.getElementById('done-address');
+      addrEl.textContent = shortenAddress(address);
+      addrEl.title = address;
+      if (loadedDescriptions.length > 0) {
+        document.getElementById('done-grants').textContent = loadedDescriptions.join(', ');
+        document.getElementById('done-grants-row').style.display = 'flex';
+      }
+      document.getElementById('form-flow').style.display = 'none';
+      document.getElementById('done').style.display = 'block';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     // Event bindings
@@ -590,6 +651,8 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
     document.getElementById('link-show-cli').addEventListener('click', showCliFlow);
     document.getElementById('btn-copy').addEventListener('click', copyCommand);
     document.getElementById('btn-cli-submit').addEventListener('click', submitCliSignature);
+    PasteField.bind(document.getElementById('cli-signature'));
+    PasteField.bind(document.getElementById('cli-address'));
     document.getElementById('link-cli-refresh').addEventListener('click', showCliFlow);
     document.getElementById('link-show-browser').addEventListener('click', showBrowserFlow);
   </script>

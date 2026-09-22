@@ -10,6 +10,7 @@ import {
   validateScopes,
   validateScopesForSignMethod,
   describeScopes,
+  resolveSigningKey,
   enforceClientScopes,
   isScopeAllowedForClient,
   resolveSignerContext,
@@ -27,6 +28,8 @@ import {
   walletBannersHtml,
   mobileDetectScript,
   walletCheckerScript,
+  signingKeyScript,
+  pasteFieldScript,
   authHeaderHtml,
   poweredByHtml,
   starryBackgroundHtml,
@@ -259,6 +262,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const scopeDescriptions = describeScopes(scopes);
+      const signingKey = resolveSigningKey(scopes);
 
       const sessionId = await createAuthorizeSession({
         clientId: client_id,
@@ -313,6 +317,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         ? `<div class="scopes-box">
       <h3>Access requested</h3>
       ${scopes.map((s, i) => `<div class="scope-item"><span>${escapeHtml(scopeDescriptions[i] ?? s)}</span> <span class="raw">${escapeHtml(s)}</span></div>`).join('')}
+      <p id="key-hint" class="key-hint" style="display:none;"></p>
     </div>`
         : ''
     }
@@ -338,15 +343,18 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         <button type="button" class="btn-alt" id="link-show-cli"><span class="prompt">&gt;_</span> Sign with btcli in your terminal</button>
         <button class="btn-deny" id="btn-deny">Deny</button>
       </div>
-      <p class="flow-hint">Both sign with your Bittensor wallet. btcli needs no extension and can use your coldkey.</p>
+      <p class="flow-hint" id="flow-hint">Both sign with your Bittensor wallet. btcli needs no extension and can use your coldkey.</p>
     </div>
     <div id="cli-flow" class="cli-section"${startInCli ? '' : ' style="display:none;"'}>
       <div class="cli-step">Step 1 &mdash; Sign the message with btcli</div>
-      <div style="position:relative;">
+      <div class="cmd-wrap">
+        <div class="cmd-bar">
+          <span class="cmd-bar-label">terminal</span>
+          <button type="button" class="cmd-copy" id="btn-copy">Copy</button>
+        </div>
         <div class="cmd-block" id="cli-cmd">Loading...</div>
-        <button class="cmd-copy" id="btn-copy">Copy</button>
       </div>
-      <p class="cli-note">Run this in your terminal. btcli asks which wallet to use and whether to sign with your coldkey or a hotkey. Add <code>--no-use-hotkey</code> to sign with the coldkey, or <code>--use-hotkey</code> for a hotkey.</p>
+      <p class="cli-note" id="cli-note"></p>
       <div class="cli-step">Step 2 &mdash; Enter your signature and address</div>
       <label class="cli-label">Signature</label>
       <textarea class="sig-input" id="cli-signature" placeholder="paste signature from btcli"></textarea>
@@ -373,6 +381,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       state: ${serializeForInlineScript(state || '')},
       signMethod: ${serializeForInlineScript(clientSignMethod)},
       walletMode: ${serializeForInlineScript(effectiveWalletMode)},
+      signingKey: ${serializeForInlineScript(signingKey)},
     };
 
     let cliNonce = null;
@@ -380,6 +389,11 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
 
     ${mobileDetectScript()}
     ${walletCheckerScript()}
+    ${signingKeyScript()}
+    ${pasteFieldScript()}
+    SigningKeyUi.renderHint(document.getElementById('key-hint'), CONFIG.signingKey);
+    SigningKeyUi.renderFlowHint(document.getElementById('flow-hint'), CONFIG.signingKey);
+    SigningKeyUi.renderNote(document.getElementById('cli-note'), CONFIG.signingKey);
     var walletLabel = WalletChecker.configs[CONFIG.signMethod].label;
 
     var signing = false;
@@ -541,7 +555,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
         if (!challengeRes.ok) { const e = await challengeRes.json(); throw new Error(e.message); }
         const data = await challengeRes.json();
         cliNonce = data.nonce;
-        document.getElementById('cli-cmd').textContent = "btcli wallet sign --message '" + data.nonce + "'";
+        document.getElementById('cli-cmd').textContent = SigningKeyUi.command(data.nonce, CONFIG.signingKey);
 
         if (cliExpiryTimer) clearTimeout(cliExpiryTimer);
         const expiresMs = (data.expires_in || 120) * 1000;
@@ -577,7 +591,7 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
     function copyCommand() {
       const text = document.getElementById('cli-cmd').textContent;
       navigator.clipboard.writeText(text).then(function() {
-        var btn = document.querySelector('.cmd-copy');
+        var btn = document.getElementById('btn-copy');
         btn.textContent = 'Copied!';
         setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
       });
@@ -588,8 +602,8 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
       btn.disabled = true;
       btn.textContent = 'Verifying...';
       try {
-        const address = document.getElementById('cli-address').value.trim();
-        const signature = document.getElementById('cli-signature').value.trim();
+        const address = PasteField.clean(document.getElementById('cli-address').value);
+        const signature = PasteField.clean(document.getElementById('cli-signature').value);
 
         if (!address) { showError('Please enter your SS58 address'); btn.disabled = false; btn.textContent = 'Authorize'; return; }
         if (!signature) { showError('Please enter the signature'); btn.disabled = false; btn.textContent = 'Authorize'; return; }
@@ -667,6 +681,8 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
     if (cliDenyEl) cliDenyEl.addEventListener('click', cliDeny);
     var cliSubmitEl = document.getElementById('btn-cli-submit');
     if (cliSubmitEl) cliSubmitEl.addEventListener('click', submitCliSignature);
+    PasteField.bind(document.getElementById('cli-signature'));
+    PasteField.bind(document.getElementById('cli-address'));
     var cliRefreshEl = document.getElementById('link-cli-refresh');
     if (cliRefreshEl) cliRefreshEl.addEventListener('click', showCliFlow);
     var showBrowserEl = document.getElementById('link-show-browser');
