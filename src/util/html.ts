@@ -173,8 +173,8 @@ export function mobileDetectScript(): string {
     }`;
 }
 
-export function walletCheckerScript(autoRun?: SignMethod): string {
-  const fn = `var WalletChecker = {
+export function walletCheckerScript(): string {
+  return `var WalletChecker = {
       configs: {
         sr25519: {
           label: 'Sign with browser extension',
@@ -207,7 +207,7 @@ export function walletCheckerScript(autoRun?: SignMethod): string {
         var btn = document.getElementById('btn-authorize');
         var banner = document.getElementById(cfg.bannerId);
         var mobileNotice = document.getElementById(cfg.mobileNoticeId);
-        var cliEntry = document.getElementById('cli-entry');
+        var cliEntry = document.getElementById('cli-entry') || document.getElementById('link-show-cli');
 
         // Hide the other method's banner
         var otherKey = method === 'evm' ? 'sr25519' : 'evm';
@@ -256,9 +256,4 @@ export function walletCheckerScript(autoRun?: SignMethod): string {
         }
       }
     };`;
-
-  if (!autoRun) return fn;
-  return fn + `
-    setTimeout(function() { WalletChecker.check('${autoRun}'); }, 500);
-    setTimeout(function() { WalletChecker.check('${autoRun}'); }, 2000);`;
 }

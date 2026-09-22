@@ -388,6 +388,10 @@ export async function authorizeRoutes(fastify: FastifyInstance): Promise<void> {
     // an account is being picked — the check would hand the user a second click.
     function runWalletCheck() {
       if (signing || pickingAccount) return;
+      // A check armed before a switch to CLI signing would re-open the
+      // "install the extension" banner over the CLI view.
+      var browserFlow = document.getElementById('browser-flow');
+      if (browserFlow && browserFlow.style.display === 'none') return;
       WalletChecker.check(CONFIG.signMethod);
     }
 
