@@ -194,7 +194,7 @@ Confidential clients must authenticate when calling `/v1/device/code`. Public cl
 | `PORT` | Server port | `3000` | No |
 | `HOST` | Bind address | `0.0.0.0` | No |
 | `NODE_ENV` | Environment | `development` | No |
-| `TRUST_PROXY` | Fastify proxy trust setting (`false`, `true`, hop count, or trusted proxy list) | `false` | No |
+| `TRUST_PROXY` | Fastify proxy trust setting (`false`, `true`, or a comma-separated list of trusted proxy IPs/CIDRs) | `false` | No |
 | `NETWORK` | Network mode (`mainnet` or `testnet`) | `mainnet` | No |
 | `RSA_PRIVATE_KEY_PATH` | Path to RSA private key | — | Yes* |
 | `RSA_PUBLIC_KEY_PATH` | Path to RSA public key | — | Yes* |

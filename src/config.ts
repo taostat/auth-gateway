@@ -18,17 +18,19 @@ function normalizeUrl(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
-function trustProxyEnv(
-  name: string,
-  defaultValue: boolean | string | string[] | number,
-): boolean | string | string[] | number {
+function trustProxyEnv(name: string, defaultValue: boolean | string | string[]): boolean | string | string[] {
   const raw = process.env[name];
   if (raw === undefined || raw === '') return defaultValue;
 
   const trimmed = raw.trim();
   if (trimmed === 'true') return true;
   if (trimmed === 'false') return false;
-  if (/^\d+$/.test(trimmed)) return parseInt(trimmed, 10);
+  if (/^\d+$/.test(trimmed)) {
+    throw new Error(
+      `${name}: hop counts are not supported — fastify trusts no proxy when given a number, ` +
+        `so X-Forwarded-* would be ignored. Set "true" or a comma-separated list of trusted proxy IPs/CIDRs.`,
+    );
+  }
   if (trimmed.includes(',')) {
     return trimmed
       .split(',')
