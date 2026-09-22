@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { toJSONSchema } from 'zod/v4/core';
-import { ScopeHandler, ParsedScope } from './types';
+import { ScopeHandler, ParsedScope, SigningKey } from './types';
 import { minerHandler } from './miner';
 import { validatorHandler } from './validator';
 import { ownerHandler } from './owner';
@@ -171,6 +171,8 @@ export interface ScopeDefinition {
   isMetadata?: boolean;
   /** Human-readable description used by the consent screen and event log. */
   describe(parsed: ParsedScope): string;
+  /** Which key the scope's verifier checks, so signing pages can tell the user which one to use. */
+  signingKey(parsed: ParsedScope): SigningKey;
   /** Amount-stripped form of an amount-bearing scope (e.g. `subnet:1:holder` for `subnet:1:holder:100`), or undefined when the scope has no base form. */
   baseScope(parsed: ParsedScope): string | undefined;
   /** Override sign-method support. Defaults to `sign_methods.includes(method)` when omitted. */
@@ -215,6 +217,7 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
     testnet_supported: true,
     isMetadata: true,
     describe: () => 'openid',
+    signingKey: () => 'any',
     baseScope: () => undefined,
   }),
   defineScope({
@@ -241,6 +244,7 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
     sign_methods: ['sr25519'],
     testnet_supported: true,
     describe: (p) => `${SUBNET_ROLE_LABEL[p.role] ?? p.role} on Subnet ${p.netuid}`,
+    signingKey: (p) => (p.role === 'owner' ? 'coldkey' : 'hotkey'),
     baseScope: () => undefined,
   }),
   defineScope({
@@ -272,6 +276,7 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
       const suffix = p.minAmount !== undefined ? ` (min ${raoToDisplay(p.minAmount)} alpha)` : '';
       return `${SUBNET_ROLE_LABEL['holder']} on Subnet ${p.netuid}${suffix}`;
     },
+    signingKey: () => 'coldkey',
     baseScope: (p) => `subnet:${p.netuid}:holder`,
   }),
   defineScope({
@@ -301,6 +306,7 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
       const suffix = p.minAmount !== undefined ? ` (min ${raoToDisplay(p.minAmount)} TAO)` : '';
       return `TAO Holder${suffix}`;
     },
+    signingKey: () => 'coldkey',
     baseScope: () => 'tao:holder',
   }),
   defineScope({
@@ -334,6 +340,7 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
       const suffix = p.minAmount !== undefined ? ` (min ${raoToDisplay(p.minAmount)} TAO)` : '';
       return `Delegator to ${short}${suffix}`;
     },
+    signingKey: () => 'coldkey',
     baseScope: (p) => (p.hotkey ? `delegate:${p.hotkey}` : undefined),
   }),
   defineScope({
@@ -360,6 +367,7 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
     testnet_supported: false,
     describe: (p) =>
       p.minAmount !== undefined ? `Staker (min ${raoToDisplay(p.minAmount)} TAO total)` : 'Staker',
+    signingKey: () => 'coldkey',
     baseScope: () => undefined,
   }),
 ];

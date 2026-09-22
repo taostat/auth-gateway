@@ -1,11 +1,11 @@
-import { ParsedScope } from './types';
+import { ParsedScope, SigningKey } from './types';
 import { config } from '../config';
 import { AuthError, InvalidScopeFormatError, ScopeError } from '../util/errors';
 import { SignerContext } from './signerContext';
 import { SignMethod } from '../crypto/address';
 import { SCOPE_REGISTRY, ScopeDefinition } from './registry';
 
-export { type ParsedScope } from './types';
+export { type ParsedScope, type SigningKey } from './types';
 export { type SignerContext, resolveSignerContext, resolveEvmSignerContext } from './signerContext';
 
 function findDef(scope: string): ScopeDefinition | undefined {
@@ -66,6 +66,30 @@ export function describeScope(scope: string): string {
 
 export function describeScopes(scopes: string[]): string[] {
   return scopes.map(describeScope);
+}
+
+/**
+ * Which key the user must sign with to satisfy every requested scope.
+ *
+ * A hotkey signature resolves to its owning coldkey on chain, so it satisfies
+ * coldkey scopes too — `hotkey` therefore wins a mixed set. Scopes that are
+ * verified against the coldkey give `coldkey`, and a set with no on-chain
+ * checks at all gives `any`.
+ */
+export function resolveSigningKey(scopes: string[]): SigningKey {
+  let result: SigningKey = 'any';
+  for (const scope of scopes) {
+    let key: SigningKey;
+    try {
+      const { def, parsed } = parseScopeWithDef(scope);
+      key = def.signingKey(parsed);
+    } catch {
+      continue;
+    }
+    if (key === 'hotkey') return 'hotkey';
+    if (key === 'coldkey') result = 'coldkey';
+  }
+  return result;
 }
 
 /**
