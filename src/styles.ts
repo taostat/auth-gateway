@@ -3,11 +3,7 @@
  * All HTML pages link to this stylesheet.
  * Uses Inter font from Google Fonts (closest match to Taostats Everett).
  */
-
-/** HTML <head> links for fonts + shared stylesheet */
-export const cssLinks = `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap">
-  <link rel="stylesheet" href="/static/styles.css">
-  <link rel="icon" href="/favicon.ico">`;
+import { createHash } from 'node:crypto';
 
 export const sharedCss = `
 @font-face { font-family: 'Everett'; font-weight: 400; font-style: normal; font-display: swap; src: url('/static/fonts/TWKEverett-Regular-web.woff2') format('woff2'); }
@@ -192,9 +188,10 @@ body.narrow { max-width: 480px; margin: 60px auto; }
 
 /* Page-specific: authorize */
 .info { color: var(--text-secondary); margin-bottom: 0; font-size: 0.9rem; line-height: 1.5; }
-.btn-row { display: flex; gap: 12px; margin-top: 20px; justify-content: center; }
-.btn-row .btn-deny { flex: none; }
-.btn-row .btn-authorize { flex: none; }
+/* Signing choices stack as equal-width peers: sign, alternative, deny. */
+.btn-stack { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
+.btn-stack > button { width: 100%; margin-top: 0; min-width: 0; }
+.btn-stack > button:hover:not(:disabled) { transform: none; }
 .btn-authorize {
   background: var(--accent); color: #000; border: 2px solid transparent;
   padding: 10px 24px; border-radius: var(--radius-sm); font-size: 0.95rem;
@@ -301,36 +298,48 @@ body.narrow { max-width: 480px; margin: 60px auto; }
 }
 .wallet-banner button:hover { color: var(--text); }
 
-/* CLI signing toggle */
-.cli-toggle {
-  display: flex;
+/* Signing choice that is not the current one (browser wallet <-> btcli) —
+   a peer of the accent action, same geometry, outlined instead of filled. */
+.btn-alt {
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
-  margin: 12px 0 0 0;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 24px;
+  background: var(--surface);
+  border: 1px solid #444;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 0.9rem;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btn-alt:hover { border-color: var(--accent); color: var(--accent); background: var(--border); }
+.btn-alt .prompt { font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent); }
+.flow-hint {
+  text-align: center;
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
+  margin-top: 10px;
 }
-.cli-toggle::before, .cli-toggle::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border);
-}
-.cli-toggle a { color: var(--text-muted); white-space: nowrap; }
-.cli-toggle a:hover { color: var(--accent); text-decoration: none; }
 
 /* CLI signing section */
 .cli-section {
   margin-top: 1rem;
 }
 .cli-step {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   color: var(--text);
   font-weight: 600;
   margin: 1.25rem 0 0.5rem 0;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--border);
 }
+.cli-note { color: var(--text-muted); font-size: 0.8rem; margin-top: 6px; line-height: 1.5; }
+.cli-note code { font-size: 0.78rem; }
+.cli-label { font-size: 0.85rem; color: var(--text-secondary); display: block; }
 .cmd-block {
   background: var(--bg);
   border: 1px solid var(--border);
@@ -398,3 +407,15 @@ body.narrow { max-width: 480px; margin: 60px auto; }
 .powered-by a:hover { color: var(--text); }
 .powered-by a:hover svg { opacity: 0.7; }
 `;
+
+/**
+ * Cache key for the stylesheet URL, derived from the CSS itself: a style
+ * change publishes a new URL, so browsers cannot serve new markup with the
+ * previously cached sheet.
+ */
+const cssVersion = createHash('sha256').update(sharedCss).digest('hex').slice(0, 12);
+
+/** HTML <head> links for fonts + shared stylesheet */
+export const cssLinks = `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap">
+  <link rel="stylesheet" href="/static/styles.css?v=${cssVersion}">
+  <link rel="icon" href="/favicon.ico">`;

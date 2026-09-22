@@ -137,6 +137,17 @@ npx tsx scripts/create-client.ts
 
 PKCE policy: when sending `code_challenge`, clients must also send explicit `code_challenge_method=S256`. This server does not apply RFC 7636 defaulting.
 
+#### `wallet_mode` (optional, authorize page only)
+
+`/v1/oauth/authorize` accepts `wallet_mode=cli` or `wallet_mode=browser`:
+
+- `cli` — open the authorize page directly in btcli signing, requesting the challenge immediately and never touching the browser wallet extension. Useful for CLI tools that open a browser to link a wallet.
+- `browser` — open the browser-wallet view (the default).
+- Omitted — the browser-wallet view.
+- Any other value is rejected with `400`.
+
+Either mode offers both signing paths: each view stacks `Sign with browser extension`, `Sign with btcli in your terminal` and `Deny` (the CLI view stacks `Authorize`, `Sign with browser extension`, `Deny`), so `wallet_mode` only decides which view is open when the page loads. `wallet_mode` is only a presentation hint for the page: it does not affect `state`, PKCE, scopes, challenge expiry, signature verification or the callback, is never returned to the client, and never appears in a token claim. Clients whose `allowed_sign_methods` is `['evm']` have no CLI signing view, so they always render the browser view.
+
 ### Device Code (RFC 8628)
 
 | Endpoint | Method | Description |
@@ -183,7 +194,7 @@ Confidential clients must authenticate when calling `/v1/device/code`. Public cl
 | `PORT` | Server port | `3000` | No |
 | `HOST` | Bind address | `0.0.0.0` | No |
 | `NODE_ENV` | Environment | `development` | No |
-| `TRUST_PROXY` | Fastify proxy trust setting (`false`, `true`, hop count, or trusted proxy list) | `false` | No |
+| `TRUST_PROXY` | Fastify proxy trust setting (`false`, `true`, or a comma-separated list of trusted proxy IPs/CIDRs) | `false` | No |
 | `NETWORK` | Network mode (`mainnet` or `testnet`) | `mainnet` | No |
 | `RSA_PRIVATE_KEY_PATH` | Path to RSA private key | — | Yes* |
 | `RSA_PUBLIC_KEY_PATH` | Path to RSA public key | — | Yes* |

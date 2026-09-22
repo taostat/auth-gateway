@@ -213,7 +213,7 @@ describe('OAuth 2.0 Authorization Server Metadata (RFC 8414)', () => {
       method: 'GET',
       url: '/.well-known/openid-configuration',
     });
-    expect(res.headers['cache-control']).toContain('max-age=3600');
+    expect(res.headers['cache-control']).toContain('max-age=60');
   });
 });
 
@@ -287,6 +287,6 @@ describe('GET /v1/discovery/scope-config', () => {
       method: 'GET',
       url: '/v1/discovery/scope-config',
     });
-    expect(res.headers['cache-control']).toContain('max-age=3600');
+    expect(res.headers['cache-control']).toContain('max-age=60');
   });
 });
