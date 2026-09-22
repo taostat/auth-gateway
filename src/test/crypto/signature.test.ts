@@ -23,6 +23,31 @@ describe('Signature Verification', () => {
     expect(verifySr25519Signature(message, badSig, address)).toBe(false);
   });
 
+  test('signature wrapped across lines by the terminal is accepted', async () => {
+    const message = 'taostats-auth:none:test-nonce';
+    const address = await getAliceAddress();
+    const signature = await signWithAlice(message);
+    const wrapped = signature.replace(/(.{32})/g, '$1\n  ');
+
+    expect(wrapped).toContain('\n');
+    expect(verifySr25519Signature(message, wrapped, address)).toBe(true);
+  });
+
+  test('signature with surrounding whitespace is accepted', async () => {
+    const message = 'taostats-auth:none:test-nonce';
+    const address = await getAliceAddress();
+    const signature = await signWithAlice(message);
+
+    expect(verifySr25519Signature(message, `  ${signature}\n`, address)).toBe(true);
+  });
+
+  test('non-hex characters are still rejected after whitespace is stripped', async () => {
+    const message = 'taostats-auth:none:test-nonce';
+    const address = await getAliceAddress();
+
+    expect(verifySr25519Signature(message, 'not a signature', address)).toBe(false);
+  });
+
   test('signature for different message is rejected', async () => {
     const address = await getAliceAddress();
     const signature = await signWithAlice('original-message');

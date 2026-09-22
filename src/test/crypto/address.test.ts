@@ -1,8 +1,29 @@
-import { detectSignMethod, isValidEvmAddress, normalizeEvmAddress, isValidAddress } from '../../crypto/address';
+import {
+  detectSignMethod,
+  isValidEvmAddress,
+  normalizeEvmAddress,
+  isValidAddress,
+  validateAndNormalizeAddress,
+} from '../../crypto/address';
 
 describe('Address Utilities', () => {
   const VALID_EVM = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
   const VALID_SS58 = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+
+  describe('validateAndNormalizeAddress', () => {
+    test('accepts an address pasted with surrounding whitespace', () => {
+      expect(validateAndNormalizeAddress(`  ${VALID_SS58}\n`).address).toBe(VALID_SS58);
+    });
+
+    test('accepts an address a terminal wrapped across lines', () => {
+      const wrapped = `${VALID_SS58.slice(0, 24)}\n${VALID_SS58.slice(24)}`;
+      expect(validateAndNormalizeAddress(wrapped).address).toBe(VALID_SS58);
+    });
+
+    test('rejects a malformed address', () => {
+      expect(() => validateAndNormalizeAddress('5Grw not an address')).toThrow();
+    });
+  });
 
   describe('detectSignMethod', () => {
     test('detects EVM address', () => {

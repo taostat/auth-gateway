@@ -39,12 +39,15 @@ export function isValidAddress(address: string, method: SignMethod): boolean {
  * Throws InvalidAddressError if the address is malformed.
  */
 export function validateAndNormalizeAddress(rawAddress: string): { address: string; method: SignMethod } {
-  const method = detectSignMethod(rawAddress);
-  if (!isValidAddress(rawAddress, method)) {
+  // An address copied from a wrapped terminal line carries newlines and
+  // indentation; neither is part of the value.
+  const trimmed = rawAddress.replace(/\s+/g, '');
+  const method = detectSignMethod(trimmed);
+  if (!isValidAddress(trimmed, method)) {
     const msg = method === 'evm' ? 'Invalid EVM address' : 'Invalid SS58 address';
     throw new InvalidAddressError(msg);
   }
-  const address = method === 'evm' ? normalizeEvmAddress(rawAddress) : rawAddress;
+  const address = method === 'evm' ? normalizeEvmAddress(trimmed) : trimmed;
   return { address, method };
 }
 
