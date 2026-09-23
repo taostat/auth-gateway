@@ -8,7 +8,11 @@ function stripArgs(label: string): string {
   return idx === -1 ? label : label.slice(0, idx);
 }
 
-async function withTimeout<T>(promise: Promise<T>, label: string, ms: number = config.subtensorQueryTimeout): Promise<T> {
+async function withTimeout<T>(
+  promise: Promise<T>,
+  label: string,
+  ms: number = config.subtensorQueryTimeout,
+): Promise<T> {
   let timeoutId: NodeJS.Timeout;
   const timer = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => reject(new Error(`Subtensor query timed out: ${label} (${ms}ms)`)), ms);
@@ -34,10 +38,7 @@ interface UidCacheEntry {
 }
 
 const UID_CACHE_FALLBACK_TTL_MS = 60_000;
-const uidCache = new BoundedMap<string, UidCacheEntry>(
-  4096,
-  (entry) => Date.now() >= entry.expiresAt,
-);
+const uidCache = new BoundedMap<string, UidCacheEntry>(4096, (entry) => Date.now() >= entry.expiresAt);
 
 function uidCacheKey(netuid: number, hotkey: string): string {
   return `${netuid}:${hotkey}`;
@@ -243,9 +244,7 @@ export async function findUidByHotkey(netuid: number, hotkey: string): Promise<n
   else uid = undefined;
 
   const secondsUntilNextEpoch = await getSecondsUntilNextEpoch(netuid);
-  const ttlMs = secondsUntilNextEpoch !== null
-    ? secondsUntilNextEpoch * 1000
-    : UID_CACHE_FALLBACK_TTL_MS;
+  const ttlMs = secondsUntilNextEpoch !== null ? secondsUntilNextEpoch * 1000 : UID_CACHE_FALLBACK_TTL_MS;
   uidCache.set(key, { uid, expiresAt: Date.now() + ttlMs });
 
   return uid;

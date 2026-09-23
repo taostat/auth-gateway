@@ -41,7 +41,16 @@ export async function createChallenge(
     `INSERT INTO challenges (nonce, address, scopes, flow_type, client_id, redirect_uri, user_code, session_id)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING nonce, address, scopes, created_at, flow_type, client_id, redirect_uri, user_code, session_id`,
-    [nonce, address, scopes, opts?.flowType ?? null, opts?.clientId ?? null, opts?.redirectUri ?? null, opts?.userCode ?? null, opts?.sessionId ?? null],
+    [
+      nonce,
+      address,
+      scopes,
+      opts?.flowType ?? null,
+      opts?.clientId ?? null,
+      opts?.redirectUri ?? null,
+      opts?.userCode ?? null,
+      opts?.sessionId ?? null,
+    ],
   );
   return mapRow(rows[0]);
 }

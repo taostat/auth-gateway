@@ -79,10 +79,7 @@ export async function discoveryRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async (_request: FastifyRequest, reply: FastifyReply) => {
-      return reply
-        .header('Cache-Control', 'public, max-age=60')
-        .code(200)
-        .send(getScopeConfig());
+      return reply.header('Cache-Control', 'public, max-age=60').code(200).send(getScopeConfig());
     },
   );
 }

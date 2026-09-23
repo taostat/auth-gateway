@@ -43,9 +43,7 @@ describe('mock backfillMissingRollups with partial rollups', () => {
     expect(bucketsAfterFirstRollup).toHaveLength(2);
 
     // Clear hourly for token_exchange to simulate partial rollup
-    const tokenExchangeKey = bucketsAfterFirstRollup.find(
-      (b) => b.event_type === 'token_exchange',
-    );
+    const tokenExchangeKey = bucketsAfterFirstRollup.find((b) => b.event_type === 'token_exchange');
     expect(tokenExchangeKey).toBeDefined();
 
     // Remove token_exchange rollup to create partial state
@@ -77,9 +75,7 @@ describe('mock backfillMissingRollups with partial rollups', () => {
     await backfillMissingRollups();
 
     const buckets = listTestHourlyBuckets();
-    const tokenBucket = buckets.find(
-      (b) => b.event_type === 'token_exchange',
-    );
+    const tokenBucket = buckets.find((b) => b.event_type === 'token_exchange');
     expect(tokenBucket).toBeDefined();
     expect(tokenBucket!.count).toBe(1);
   });

@@ -104,4 +104,3 @@ export type EventType =
 export type Outcome = 'success' | 'failure' | 'granted' | 'rejected' | 'pending';
 
 export type Window = '24h' | '7d' | '30d';
-

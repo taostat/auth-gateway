@@ -85,13 +85,15 @@ function deriveAllowedEntryRegex(segments: Segment[]): RegExp {
   return new RegExp(`^${head}${tail}$`);
 }
 
-function deriveFormat(segments: Segment[]): string {
-  const renderRequired = (seg: Segment): string => ('literal' in seg ? seg.literal : `{${seg.param}}`);
-  const renderOptional = (seg: Segment): string =>
-    'literal' in seg ? `[:${seg.literal}]` : `[:{${seg.param}}]`;
+const formatRequired = (seg: Segment): string => ('literal' in seg ? seg.literal : `{${seg.param}}`);
+const formatOptional = (seg: Segment): string => ('literal' in seg ? `[:${seg.literal}]` : `[:{${seg.param}}]`);
 
-  const head = segments.filter((s) => !isOptional(s)).map(renderRequired).join(':');
-  const tail = segments.filter(isOptional).map(renderOptional).join('');
+function deriveFormat(segments: Segment[]): string {
+  const head = segments
+    .filter((s) => !isOptional(s))
+    .map(formatRequired)
+    .join(':');
+  const tail = segments.filter(isOptional).map(formatOptional).join('');
   return head + tail;
 }
 
@@ -179,10 +181,7 @@ export interface ScopeDefinition {
   supportsSignMethod?(method: SignMethod): boolean;
 }
 
-type ScopeBuilderInput = Omit<
-  ScopeDefinition,
-  'format' | 'templates' | 'regex' | 'allowedEntryRegex'
->;
+type ScopeBuilderInput = Omit<ScopeDefinition, 'format' | 'templates' | 'regex' | 'allowedEntryRegex'>;
 
 function assertOptionalSegmentsAreTrailing(id: string, segments: Segment[]): void {
   const firstOptional = segments.findIndex(isOptional);
@@ -229,12 +228,17 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
       { param: 'netuid', pattern: '\\d+' },
       { param: 'role', enum: ['miner', 'validator', 'owner'] },
     ],
-    params: z.object({
-      netuid: netuid.describe('Subnet ID'),
-      role: z.enum(['miner', 'validator', 'owner']).describe('Role on the subnet'),
-    }).meta({
-      examples: [{ netuid: 1, role: 'miner' }, { netuid: 1, role: 'validator' }],
-    }),
+    params: z
+      .object({
+        netuid: netuid.describe('Subnet ID'),
+        role: z.enum(['miner', 'validator', 'owner']).describe('Role on the subnet'),
+      })
+      .meta({
+        examples: [
+          { netuid: 1, role: 'miner' },
+          { netuid: 1, role: 'validator' },
+        ],
+      }),
     parse: (g) => ({
       type: 'subnet',
       netuid: parseInt(g['netuid']!, 10),
@@ -257,12 +261,14 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
       { literal: 'holder' },
       { param: 'amount', pattern: AMT, templatePlaceholder: '{min_alpha}', optional: true },
     ],
-    params: z.object({
-      netuid: netuid.describe('Subnet ID'),
-      amount: optionalPositiveAmount.describe('Minimum alpha balance (leave empty for any amount)'),
-    }).meta({
-      examples: [{ netuid: 1 }, { netuid: 1, amount: 100 }],
-    }),
+    params: z
+      .object({
+        netuid: netuid.describe('Subnet ID'),
+        amount: optionalPositiveAmount.describe('Minimum alpha balance (leave empty for any amount)'),
+      })
+      .meta({
+        examples: [{ netuid: 1 }, { netuid: 1, amount: 100 }],
+      }),
     parse: (g) => ({
       type: 'subnet',
       netuid: parseInt(g['netuid']!, 10),
@@ -288,11 +294,13 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
       { literal: 'holder' },
       { param: 'amount', pattern: AMT, templatePlaceholder: '{min_tao}', optional: true },
     ],
-    params: z.object({
-      amount: optionalPositiveAmount.describe('Minimum TAO balance (leave empty for any amount)'),
-    }).meta({
-      examples: [{}, { amount: 100 }],
-    }),
+    params: z
+      .object({
+        amount: optionalPositiveAmount.describe('Minimum TAO balance (leave empty for any amount)'),
+      })
+      .meta({
+        examples: [{}, { amount: 100 }],
+      }),
     parse: (g) => ({
       type: 'tao',
       netuid: 0,
@@ -318,12 +326,14 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
       { param: 'hotkey', pattern: SS58, templatePlaceholder: '{hotkey}' },
       { param: 'amount', pattern: AMT, templatePlaceholder: '{min_tao}', optional: true },
     ],
-    params: z.object({
-      hotkey: ss58Address.describe('Validator hotkey (SS58 address starting with 5, 48 characters)'),
-      amount: optionalPositiveAmount.describe('Minimum delegated TAO'),
-    }).meta({
-      examples: [{ hotkey: '5FHneW46...' }, { hotkey: '5FHneW46...', amount: 100 }],
-    }),
+    params: z
+      .object({
+        hotkey: ss58Address.describe('Validator hotkey (SS58 address starting with 5, 48 characters)'),
+        amount: optionalPositiveAmount.describe('Minimum delegated TAO'),
+      })
+      .meta({
+        examples: [{ hotkey: '5FHneW46...' }, { hotkey: '5FHneW46...', amount: 100 }],
+      }),
     parse: (g) => ({
       type: 'delegate',
       netuid: 0,
@@ -347,15 +357,14 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
     id: 'staker',
     name: 'Staker',
     description: 'Require total staked TAO across all subnets',
-    segments: [
-      { literal: 'staker' },
-      { param: 'amount', pattern: AMT, templatePlaceholder: '{min_tao}' },
-    ],
-    params: z.object({
-      amount: positiveAmount.describe('Minimum total staked TAO'),
-    }).meta({
-      examples: [{ amount: 100 }, { amount: 1000 }],
-    }),
+    segments: [{ literal: 'staker' }, { param: 'amount', pattern: AMT, templatePlaceholder: '{min_tao}' }],
+    params: z
+      .object({
+        amount: positiveAmount.describe('Minimum total staked TAO'),
+      })
+      .meta({
+        examples: [{ amount: 100 }, { amount: 1000 }],
+      }),
     parse: (g) => ({
       type: 'staker',
       netuid: 0,
@@ -365,8 +374,7 @@ export const SCOPE_REGISTRY: ScopeDefinition[] = [
     handlers: { staker: stakerHandler },
     sign_methods: ['sr25519'],
     testnet_supported: false,
-    describe: (p) =>
-      p.minAmount !== undefined ? `Staker (min ${raoToDisplay(p.minAmount)} TAO total)` : 'Staker',
+    describe: (p) => (p.minAmount !== undefined ? `Staker (min ${raoToDisplay(p.minAmount)} TAO total)` : 'Staker'),
     signingKey: () => 'coldkey',
     baseScope: () => undefined,
   }),
@@ -460,8 +468,7 @@ export function getScopeConfig(): ScopeConfig {
       }),
       grant_types: GRANT_TYPES,
       sign_methods: SIGN_METHODS,
-      evm_scope_restriction:
-        'EVM clients support identity verification only. Scopes are automatically set to openid.',
+      evm_scope_restriction: 'EVM clients support identity verification only. Scopes are automatically set to openid.',
     };
   }
   return cachedScopeConfig;

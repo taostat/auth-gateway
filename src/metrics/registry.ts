@@ -119,10 +119,7 @@ export const buildInfo = new Gauge({
 
 buildInfo.set({ version: config.version, commit: process.env['GIT_COMMIT'] ?? 'unknown' }, 1);
 
-type GrantType =
-  | 'authorization_code'
-  | 'refresh_token'
-  | 'urn:ietf:params:oauth:grant-type:device_code';
+type GrantType = 'authorization_code' | 'refresh_token' | 'urn:ietf:params:oauth:grant-type:device_code';
 type Outcome = 'success' | 'failure';
 type DeviceStage = 'issued' | 'polled' | 'approved' | 'denied' | 'expired';
 type ScopeOutcome = 'granted' | 'rejected';
@@ -157,11 +154,7 @@ export function recordAuthorizeRequest(input: {
   });
 }
 
-export function recordRefreshRotation(input: {
-  client_id: string;
-  outcome: Outcome;
-  error_reason?: string;
-}): void {
+export function recordRefreshRotation(input: { client_id: string; outcome: Outcome; error_reason?: string }): void {
   refreshRotationsTotal.inc({
     client_id: input.client_id,
     outcome: input.outcome,
@@ -185,11 +178,7 @@ export function recordChallenge(input: { sign_method: string; outcome: 'issued' 
   challengesTotal.inc({ sign_method: input.sign_method, outcome: input.outcome });
 }
 
-export function recordScopeRequest(input: {
-  client_id: string;
-  scope: string;
-  outcome: ScopeOutcome;
-}): void {
+export function recordScopeRequest(input: { client_id: string; scope: string; outcome: ScopeOutcome }): void {
   scopeRequestsTotal.inc(input);
 }
 

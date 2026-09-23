@@ -24,9 +24,7 @@ export async function registerRoutes(
   await fastify.register(landingRoutes);
 }
 
-export async function registerAdminRoutes(
-  fastify: FastifyInstance,
-): Promise<void> {
+export async function registerAdminRoutes(fastify: FastifyInstance): Promise<void> {
   await fastify.register(adminRoutes);
   await fastify.register(healthRoutes);
   await fastify.register(discoveryRoutes);

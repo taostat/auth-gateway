@@ -24,7 +24,7 @@ export async function createAuthorizeSession(opts: {
 }): Promise<string> {
   const pool = getPool();
   const codeChallenge = opts.codeChallenge ?? null;
-  const codeChallengeMethod = codeChallenge ? opts.codeChallengeMethod ?? 'S256' : null;
+  const codeChallengeMethod = codeChallenge ? (opts.codeChallengeMethod ?? 'S256') : null;
   const { rows } = await pool.query(
     `INSERT INTO authorize_sessions (client_id, redirect_uri, scopes, code_challenge, code_challenge_method, oidc_nonce, state)
      VALUES ($1, $2, $3, $4, $5, $6, $7)

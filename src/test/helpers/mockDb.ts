@@ -740,8 +740,7 @@ export function setupMockDb(): void {
     const exchangesIn = (clientId: string, window: Window): StoredOAuthEvent[] => {
       const cutoff = Date.now() - windowMs(window);
       return oauthEvents.filter(
-        (e) =>
-          e.client_id === clientId && EXCHANGE_TYPES.has(e.event_type) && e.occurred_at.getTime() >= cutoff,
+        (e) => e.client_id === clientId && EXCHANGE_TYPES.has(e.event_type) && e.occurred_at.getTime() >= cutoff,
       );
     };
 
@@ -809,10 +808,7 @@ export function setupMockDb(): void {
       listClientEvents: jest
         .fn()
         .mockImplementation(
-          async (
-            clientId: string,
-            opts: { limit: number; before?: { occurred_at: Date; id: string } | undefined },
-          ) => {
+          async (clientId: string, opts: { limit: number; before?: { occurred_at: Date; id: string } | undefined }) => {
             let filtered = oauthEvents.filter((e) => e.client_id === clientId);
             if (opts.before) {
               const b = opts.before;

@@ -26,9 +26,7 @@ describe('recordEvent', () => {
 
     expect(poolQuery).toHaveBeenCalledTimes(1);
     const args = poolQuery.mock.calls[0]![1] as unknown[];
-    const expectedHash = createHash('sha256')
-      .update('5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY')
-      .digest();
+    const expectedHash = createHash('sha256').update('5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY').digest();
     expect(args[4]).toEqual(expectedHash);
   });
 

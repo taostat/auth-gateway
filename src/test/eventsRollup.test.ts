@@ -76,18 +76,9 @@ describe('backfillMissingRollups', () => {
 
     // Verify each rollup call has correct hour range
     const rollupCalls = poolQuery.mock.calls.slice(1);
-    expect(rollupCalls[0]![1]).toEqual([
-      new Date('2026-04-15T02:00:00.000Z'),
-      new Date('2026-04-15T03:00:00.000Z'),
-    ]);
-    expect(rollupCalls[1]![1]).toEqual([
-      new Date('2026-04-15T04:00:00.000Z'),
-      new Date('2026-04-15T05:00:00.000Z'),
-    ]);
-    expect(rollupCalls[2]![1]).toEqual([
-      new Date('2026-04-15T06:00:00.000Z'),
-      new Date('2026-04-15T07:00:00.000Z'),
-    ]);
+    expect(rollupCalls[0]![1]).toEqual([new Date('2026-04-15T02:00:00.000Z'), new Date('2026-04-15T03:00:00.000Z')]);
+    expect(rollupCalls[1]![1]).toEqual([new Date('2026-04-15T04:00:00.000Z'), new Date('2026-04-15T05:00:00.000Z')]);
+    expect(rollupCalls[2]![1]).toEqual([new Date('2026-04-15T06:00:00.000Z'), new Date('2026-04-15T07:00:00.000Z')]);
   });
 
   test('does nothing when no missing hours exist', async () => {
