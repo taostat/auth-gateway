@@ -6,14 +6,10 @@ import { config } from '../config';
  * Mark an auth code JTI as consumed. Returns true if this was the first
  * consumption (inserted), false if already consumed (conflict).
  */
-export async function markAuthCodeConsumed(
-  jti: string,
-  db: Pool | PoolClient = getPool(),
-): Promise<boolean> {
-  const { rowCount } = await db.query(
-    'INSERT INTO consumed_auth_codes (jti) VALUES ($1) ON CONFLICT DO NOTHING',
-    [jti],
-  );
+export async function markAuthCodeConsumed(jti: string, db: Pool | PoolClient = getPool()): Promise<boolean> {
+  const { rowCount } = await db.query('INSERT INTO consumed_auth_codes (jti) VALUES ($1) ON CONFLICT DO NOTHING', [
+    jti,
+  ]);
   return (rowCount ?? 0) > 0;
 }
 

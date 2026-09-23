@@ -138,9 +138,7 @@ describe('GET /v1/admin/clients/:client_id/stats', () => {
       headers: ADMIN_HEADER,
     });
     const body = JSON.parse(res.payload);
-    const scopeCounts = new Map(
-      body.scopes_requested.map((s: { scope: string; count: number }) => [s.scope, s.count]),
-    );
+    const scopeCounts = new Map(body.scopes_requested.map((s: { scope: string; count: number }) => [s.scope, s.count]));
     expect(scopeCounts.get('openid')).toBe(2);
     expect(scopeCounts.get('subnet:1:miner')).toBe(1);
   });

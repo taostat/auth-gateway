@@ -1100,7 +1100,7 @@ describe('OAuth Routes', () => {
         app.inject({ method: 'POST', url: '/v1/oauth/refresh', payload: refreshPayload }),
       ]);
 
-      const statuses = [res1.statusCode, res2.statusCode].sort((a, b) => a - b);
+      const statuses = [res1.statusCode, res2.statusCode].toSorted((a, b) => a - b);
       // Exactly one should succeed (200) and one should fail (401)
       expect(statuses).toEqual([200, 401]);
 

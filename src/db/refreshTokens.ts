@@ -11,14 +11,17 @@ export const RotateError = {
 let cleanupInterval: NodeJS.Timeout | null = null;
 let cleanupPromise: Promise<void> | null = null;
 
-export async function storeRefreshToken(opts: {
-  jti: string;
-  client_id: string;
-  address: string;
-  scopes: string[];
-  epoch_at_issuance: number | null;
-  expires_at: Date;
-}, db: Pool | PoolClient = getPool()): Promise<void> {
+export async function storeRefreshToken(
+  opts: {
+    jti: string;
+    client_id: string;
+    address: string;
+    scopes: string[];
+    epoch_at_issuance: number | null;
+    expires_at: Date;
+  },
+  db: Pool | PoolClient = getPool(),
+): Promise<void> {
   await db.query(
     `INSERT INTO refresh_tokens (jti, client_id, address, scopes, epoch_at_issuance, expires_at)
      VALUES ($1, $2, $3, $4, $5, $6)`,

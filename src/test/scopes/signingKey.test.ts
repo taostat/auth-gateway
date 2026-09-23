@@ -40,9 +40,7 @@ describe('resolveSigningKey', () => {
     for (const def of SCOPE_REGISTRY) {
       const parsed = def.parse(
         Object.fromEntries(
-          def.segments.flatMap((seg) =>
-            'param' in seg ? [[seg.param, seg.param === 'hotkey' ? HOTKEY : '1']] : [],
-          ),
+          def.segments.flatMap((seg) => ('param' in seg ? [[seg.param, seg.param === 'hotkey' ? HOTKEY : '1']] : [])),
         ),
       );
       expect(['hotkey', 'coldkey', 'any']).toContain(def.signingKey(parsed));

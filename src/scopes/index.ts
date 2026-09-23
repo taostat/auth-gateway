@@ -124,14 +124,8 @@ function scopeMatchesAllowed(requestedScope: string, allowedEntry: string): bool
  * request because subnet_holder's regex has `holder` as a literal — `*` cannot
  * substitute for it.
  */
-function matchesAnyAllowedForDef(
-  def: ScopeDefinition,
-  requestedScope: string,
-  allowedScopes: string[],
-): boolean {
-  return allowedScopes.some(
-    (entry) => def.allowedEntryRegex.test(entry) && scopeMatchesAllowed(requestedScope, entry),
-  );
+function matchesAnyAllowedForDef(def: ScopeDefinition, requestedScope: string, allowedScopes: string[]): boolean {
+  return allowedScopes.some((entry) => def.allowedEntryRegex.test(entry) && scopeMatchesAllowed(requestedScope, entry));
 }
 
 /**
@@ -193,11 +187,7 @@ export function validateScopesForSignMethod(scopes: string[], method: SignMethod
     const def = findDef(scope);
     if (!def) throw new InvalidScopeFormatError(scope);
     if (!supportsSignMethod(def, method)) {
-      throw new AuthError(
-        `Scope "${scope}" is not available for ${method.toUpperCase()} wallets`,
-        400,
-        'Bad Request',
-      );
+      throw new AuthError(`Scope "${scope}" is not available for ${method.toUpperCase()} wallets`, 400, 'Bad Request');
     }
   }
 }

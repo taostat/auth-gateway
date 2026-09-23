@@ -9,10 +9,7 @@ import {
 let cleanupInterval: NodeJS.Timeout | null = null;
 let cleanupPromise: Promise<void> | null = null;
 
-export async function markAuthCodeConsumed(
-  jti: string,
-  db?: Pool | PoolClient,
-): Promise<boolean> {
+export async function markAuthCodeConsumed(jti: string, db?: Pool | PoolClient): Promise<boolean> {
   return dbMark(jti, db);
 }
 

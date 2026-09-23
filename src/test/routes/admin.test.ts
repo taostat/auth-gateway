@@ -163,11 +163,13 @@ describe('Admin Routes', () => {
 
     test('rejects non-openid scopes for EVM client', async () => {
       clearTestClients();
-      addTestClient(createTestClient({
-        client_id: 'evm-client',
-        allowed_sign_methods: ['evm'],
-        allowed_scopes: ['openid'],
-      }));
+      addTestClient(
+        createTestClient({
+          client_id: 'evm-client',
+          allowed_sign_methods: ['evm'],
+          allowed_scopes: ['openid'],
+        }),
+      );
 
       const res = await app.inject({
         method: 'PATCH',
@@ -213,11 +215,13 @@ describe('Admin Routes', () => {
 
     test('returns 404 for public client', async () => {
       clearTestClients();
-      addTestClient(createTestClient({
-        client_id: 'public-client',
-        client_type: 'public',
-        client_secret_hash: undefined,
-      }));
+      addTestClient(
+        createTestClient({
+          client_id: 'public-client',
+          client_type: 'public',
+          client_secret_hash: undefined,
+        }),
+      );
 
       const res = await app.inject({
         method: 'POST',

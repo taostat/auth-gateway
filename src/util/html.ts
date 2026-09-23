@@ -140,10 +140,9 @@ export const poweredByHtml = `<div class="powered-by">
 </div>`;
 
 export function walletBannersHtml(method?: SignMethod): string {
-  const bittensorBanner =
-    !config.walletBannerUrl
-      ? ''
-      : `
+  const bittensorBanner = !config.walletBannerUrl
+    ? ''
+    : `
   <div id="bittensor-banner" class="wallet-banner" style="display:none">
     <span>For the best experience, install the <a href="${escapeHtml(config.walletBannerUrl)}" target="_blank" rel="noopener noreferrer">Taostats Wallet</a></span>
     <button class="banner-close">&times;</button>

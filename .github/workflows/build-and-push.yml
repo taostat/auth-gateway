@@ -55,8 +55,14 @@ jobs:
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci
 
-      - name: Type check + Lint
-        run: npm run typecheck & npm run lint & wait
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
 
       - name: Test
         run: npm test

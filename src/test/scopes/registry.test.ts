@@ -1,5 +1,5 @@
 import { toJSONSchema } from 'zod/v4/core';
-import { SCOPE_REGISTRY, GRANT_TYPES, SIGN_METHODS, getScopeConfig, ScopeConfig } from '../../scopes/registry';
+import { SCOPE_REGISTRY, GRANT_TYPES, SIGN_METHODS, getScopeConfig } from '../../scopes/registry';
 
 describe('SCOPE_REGISTRY', () => {
   test('contains openid plus 5 verifiable scope categories', () => {
@@ -125,9 +125,9 @@ describe('SCOPE_REGISTRY', () => {
       const segmentParams = def.segments
         .filter((s): s is Extract<typeof s, { param: string }> => 'param' in s)
         .map((s) => s.param)
-        .sort();
+        .toSorted();
       const schema = toJSONSchema(def.params) as { properties?: Record<string, unknown> };
-      const zodParams = Object.keys(schema.properties ?? {}).sort();
+      const zodParams = Object.keys(schema.properties ?? {}).toSorted();
       expect(zodParams).toEqual(segmentParams);
     }
   });
@@ -217,7 +217,7 @@ describe('getScopeConfig', () => {
 
       const concreteProps = concrete.properties ?? {};
       const wildcardProps = wildcard.properties ?? {};
-      expect(Object.keys(wildcardProps).sort()).toEqual(Object.keys(concreteProps).sort());
+      expect(Object.keys(wildcardProps).toSorted()).toEqual(Object.keys(concreteProps).toSorted());
 
       for (const [name, prop] of Object.entries(wildcardProps)) {
         const wrapped = prop as { oneOf?: Array<Record<string, unknown>> };

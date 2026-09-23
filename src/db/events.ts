@@ -50,10 +50,7 @@ let rollupPromise: Promise<void> | null = null;
 let cleanupInterval: NodeJS.Timeout | null = null;
 let cleanupPromise: Promise<void> | null = null;
 
-export async function rollupHourRange(
-  hourStart: Date,
-  hourEnd: Date,
-): Promise<void> {
+export async function rollupHourRange(hourStart: Date, hourEnd: Date): Promise<void> {
   await getPool().query(
     `INSERT INTO oauth_events_hourly (client_id, hour_bucket, event_type, outcome, count, distinct_subjects)
      SELECT
@@ -103,9 +100,7 @@ export async function backfillMissingRollups(): Promise<void> {
   }
 }
 
-export async function cleanupOldEvents(
-  retentionDays: number = config.eventLogRetentionDays,
-): Promise<void> {
+export async function cleanupOldEvents(retentionDays: number = config.eventLogRetentionDays): Promise<void> {
   await getPool().query(
     `DELETE FROM oauth_events
      WHERE occurred_at < now() - ($1::int * INTERVAL '1 day')

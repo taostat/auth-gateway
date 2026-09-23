@@ -89,7 +89,7 @@ export function createAuthCode(
     evm_address?: string | null | undefined;
   },
 ): string {
-  const codeChallengeMethod = opts?.code_challenge ? opts.code_challenge_method ?? 'S256' : undefined;
+  const codeChallengeMethod = opts?.code_challenge ? (opts.code_challenge_method ?? 'S256') : undefined;
 
   return jwt.sign(
     {

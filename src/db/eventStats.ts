@@ -40,16 +40,6 @@ function useRollup(window: Window): boolean {
   return window === '30d';
 }
 
-interface CountTriple {
-  exchanges: number;
-  successes: number;
-  failures: number;
-}
-
-function emptyCounts(): CountTriple {
-  return { exchanges: 0, successes: 0, failures: 0 };
-}
-
 async function totalsFromRaw(clientId: string, window: Window): Promise<StatsTotals> {
   const { rows } = await getPool().query(
     `SELECT
@@ -154,10 +144,7 @@ async function failuresByReason(clientId: string, window: Window): Promise<Recor
   return out;
 }
 
-async function scopesRequested(
-  clientId: string,
-  window: Window,
-): Promise<Array<{ scope: string; count: number }>> {
+async function scopesRequested(clientId: string, window: Window): Promise<Array<{ scope: string; count: number }>> {
   // token_exchange fires once per new token grant across all flows (auth code,
   // device code). authorize is skipped because browser flow emits both, and
   // token_refresh is skipped because it carries scopes forward from an existing
@@ -189,10 +176,7 @@ function mapTimeseriesRow(r: Record<string, unknown>): StatsTimeseriesPoint {
   };
 }
 
-async function timeseriesFromRaw(
-  clientId: string,
-  window: Window,
-): Promise<StatsTimeseriesPoint[]> {
+async function timeseriesFromRaw(clientId: string, window: Window): Promise<StatsTimeseriesPoint[]> {
   const { rows } = await getPool().query(
     `SELECT
        date_trunc('hour', occurred_at) AS bucket,
