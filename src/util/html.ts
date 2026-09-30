@@ -214,30 +214,33 @@ export function signingKeyScript(): string {
           ? 'Both sign with your Bittensor wallet. btcli needs no extension.'
           : 'Both sign with your Bittensor wallet. btcli needs no extension and can use your coldkey.';
       },
+      // btcli 11 signs with the coldkey by default, has no --no-use-hotkey,
+      // and uses the "default" wallet without prompting, so the wallet is
+      // always named. -w, -H and --use-hotkey are also accepted by btcli 9.
       command: function(nonce, key) {
-        var flag = key === 'hotkey' ? ' --use-hotkey' : key === 'coldkey' ? ' --no-use-hotkey' : '';
-        return "btcli wallet sign" + flag + " --message '" + nonce + "'";
+        var keyArgs = key === 'hotkey' ? ' -H <hotkey> --use-hotkey' : '';
+        return "btcli wallet sign -w <wallet>" + keyArgs + " --message '" + nonce + "'";
       },
       renderNote: function(el, key) {
         if (!el) return;
         el.textContent = '';
         function text(t) { return document.createTextNode(t); }
         function code(t) { var c = document.createElement('code'); c.textContent = t; return c; }
-        // The key is already named above the permissions and the flag is in
-        // the command, so the note only covers what btcli will ask for.
+        el.appendChild(text('Run this in your terminal, replacing '));
+        el.appendChild(code('<wallet>'));
         if (key === 'hotkey') {
-          el.appendChild(text('Run this in your terminal. btcli asks which wallet and hotkey to use.'));
+          el.appendChild(text(' with your wallet name and '));
+          el.appendChild(code('<hotkey>'));
+          el.appendChild(text(' with the hotkey name.'));
           return;
         }
         if (key === 'coldkey') {
-          el.appendChild(text('Run this in your terminal. btcli asks which wallet to use.'));
+          el.appendChild(text(' with the name of the wallet that holds your coldkey.'));
           return;
         }
-        el.appendChild(text('Run this in your terminal. btcli asks which wallet to use and whether to sign with your coldkey or a hotkey. Add '));
-        el.appendChild(code('--no-use-hotkey'));
-        el.appendChild(text(' to sign with the coldkey, or '));
-        el.appendChild(code('--use-hotkey'));
-        el.appendChild(text(' for a hotkey.'));
+        el.appendChild(text(' with your wallet name. It signs with the coldkey; to sign with a hotkey, add '));
+        el.appendChild(code('-H <hotkey> --use-hotkey'));
+        el.appendChild(text('.'));
       }
     };`;
 }
