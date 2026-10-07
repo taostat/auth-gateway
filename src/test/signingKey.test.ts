@@ -38,43 +38,45 @@ function noteText(key: string | null): string {
 }
 
 describe('btcli sign command', () => {
-  it('signs with the named wallet coldkey and no hotkey flag', () => {
-    expect(ui.command('abc123', 'coldkey')).toBe("btcli wallet sign -w <wallet> --message 'abc123'");
+  it('leaves the wallet for btcli to prompt for when signing with the coldkey', () => {
+    expect(ui.command('abc123', 'coldkey')).toBe("btcli wallet sign --message 'abc123'");
   });
 
-  it('names the wallet and hotkey when a hotkey is required', () => {
-    expect(ui.command('abc123', 'hotkey')).toBe(
-      "btcli wallet sign -w <wallet> -H <hotkey> --use-hotkey --message 'abc123'",
-    );
+  it('adds --use-hotkey when a hotkey is required', () => {
+    expect(ui.command('abc123', 'hotkey')).toBe("btcli wallet sign --use-hotkey --message 'abc123'");
   });
 
   it('defaults to the coldkey when either key is accepted', () => {
-    expect(ui.command('abc123', null)).toBe("btcli wallet sign -w <wallet> --message 'abc123'");
+    expect(ui.command('abc123', 'any')).toBe("btcli wallet sign --message 'abc123'");
   });
 
-  it.each(['coldkey', 'hotkey', null])('never emits the btcli 9-only --no-use-hotkey flag (%s)', (key) => {
+  it.each(['coldkey', 'hotkey', 'any'])('has no placeholders to replace (%s)', (key) => {
+    expect(ui.command('n', key)).not.toMatch(/[<>]/);
+  });
+
+  it.each(['coldkey', 'hotkey', 'any'])('never emits the btcli 9-only --no-use-hotkey flag (%s)', (key) => {
     expect(ui.command('n', key)).not.toContain('--no-use-hotkey');
     expect(noteText(key)).not.toContain('--no-use-hotkey');
   });
 });
 
 describe('btcli sign note', () => {
-  it('asks for the coldkey wallet name', () => {
-    expect(noteText('coldkey')).toBe(
-      'Run this in your terminal, replacing <wallet> with the name of the wallet that holds your coldkey.',
-    );
+  it('says btcli prompts for the wallet', () => {
+    expect(noteText('coldkey')).toBe('Run this in your terminal. btcli asks which wallet to use.');
   });
 
-  it('asks for the wallet and hotkey names', () => {
+  it('explains how to pick a hotkey other than default', () => {
     expect(noteText('hotkey')).toBe(
-      'Run this in your terminal, replacing <wallet> with your wallet name and <hotkey> with the hotkey name.',
+      'Run this in your terminal. btcli asks which wallet to use. ' +
+        'If your hotkey is not named default, add -H <hotkey name>.',
     );
   });
 
   it('explains how to switch to a hotkey when either key is accepted', () => {
-    expect(noteText(null)).toBe(
-      'Run this in your terminal, replacing <wallet> with your wallet name. ' +
-        'It signs with the coldkey; to sign with a hotkey, add -H <hotkey> --use-hotkey.',
+    expect(noteText('any')).toBe(
+      'Run this in your terminal. btcli asks which wallet to use. ' +
+        'It signs with the coldkey; to sign with a hotkey, add --use-hotkey, ' +
+        'plus -H <hotkey name> if it is not named default.',
     );
   });
 

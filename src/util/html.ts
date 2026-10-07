@@ -214,33 +214,32 @@ export function signingKeyScript(): string {
           ? 'Both sign with your Bittensor wallet. btcli needs no extension.'
           : 'Both sign with your Bittensor wallet. btcli needs no extension and can use your coldkey.';
       },
-      // btcli 11 signs with the coldkey by default, has no --no-use-hotkey,
-      // and uses the "default" wallet without prompting, so the wallet is
-      // always named. -w, -H and --use-hotkey are also accepted by btcli 9.
+      // Both btcli 9 and 11 prompt for the wallet when it is left out, so the
+      // command needs no placeholders. btcli 11 signs with the coldkey unless
+      // --use-hotkey is given (it has no --no-use-hotkey), and with
+      // --use-hotkey it takes the hotkey named "default" unless -H names one.
       command: function(nonce, key) {
-        var keyArgs = key === 'hotkey' ? ' -H <hotkey> --use-hotkey' : '';
-        return "btcli wallet sign -w <wallet>" + keyArgs + " --message '" + nonce + "'";
+        var flag = key === 'hotkey' ? ' --use-hotkey' : '';
+        return "btcli wallet sign" + flag + " --message '" + nonce + "'";
       },
       renderNote: function(el, key) {
         if (!el) return;
         el.textContent = '';
         function text(t) { return document.createTextNode(t); }
         function code(t) { var c = document.createElement('code'); c.textContent = t; return c; }
-        el.appendChild(text('Run this in your terminal, replacing '));
-        el.appendChild(code('<wallet>'));
+        el.appendChild(text('Run this in your terminal. btcli asks which wallet to use.'));
+        if (key === 'coldkey') return;
         if (key === 'hotkey') {
-          el.appendChild(text(' with your wallet name and '));
-          el.appendChild(code('<hotkey>'));
-          el.appendChild(text(' with the hotkey name.'));
+          el.appendChild(text(' If your hotkey is not named default, add '));
+          el.appendChild(code('-H <hotkey name>'));
+          el.appendChild(text('.'));
           return;
         }
-        if (key === 'coldkey') {
-          el.appendChild(text(' with the name of the wallet that holds your coldkey.'));
-          return;
-        }
-        el.appendChild(text(' with your wallet name. It signs with the coldkey; to sign with a hotkey, add '));
-        el.appendChild(code('-H <hotkey> --use-hotkey'));
-        el.appendChild(text('.'));
+        el.appendChild(text(' It signs with the coldkey; to sign with a hotkey, add '));
+        el.appendChild(code('--use-hotkey'));
+        el.appendChild(text(', plus '));
+        el.appendChild(code('-H <hotkey name>'));
+        el.appendChild(text(' if it is not named default.'));
       }
     };`;
 }
