@@ -48,8 +48,11 @@ export function sendHtmlError(reply: FastifyReply, statusCode: number, title: st
     .send(errorPage(title, message));
 }
 
-/** Minimum access token expiry in seconds (floor for epoch-aligned expiry). */
-export const MIN_ACCESS_TOKEN_EXPIRY = 60;
+/**
+ * Minimum access token expiry in seconds (floor for epoch-aligned expiry), so
+ * signing in just before an epoch boundary still yields a usable token.
+ */
+export const MIN_ACCESS_TOKEN_EXPIRY = 300;
 
 /**
  * Extract the first netuid from a scopes array.
