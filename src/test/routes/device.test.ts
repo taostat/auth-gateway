@@ -196,6 +196,28 @@ describe('Device Code Routes', () => {
   });
 
   describe('Full device code flow', () => {
+    test.each(['login', 'link'])('rejects a bound auth %s challenge at device confirmation', async (purpose) => {
+      const address = await getAliceAddress();
+      const codeRes = await requestConfidentialDeviceCode();
+      expect(codeRes.statusCode).toBe(200);
+      const { user_code } = codeRes.json();
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/challenge',
+        payload: { address, client_id: TEST_CLIENT_ID, purpose },
+      });
+      expect(challengeRes.statusCode).toBe(200);
+      const { nonce } = challengeRes.json();
+      const confirmed = await browserPost(app, '/v1/device/confirm', {
+        user_code,
+        address,
+        nonce,
+        signature: await signWithAlice(nonce),
+      });
+      expect(confirmed.statusCode).toBe(400);
+      expect(confirmed.json().message).toContain('different authentication flow');
+    });
+
     test('rejects using a device challenge for a different user_code', async () => {
       const address = await getAliceAddress();
 

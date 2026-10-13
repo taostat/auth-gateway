@@ -2,13 +2,15 @@ import { createHash, randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { getKid, getPrivateKey, getPublicKey } from './keys';
 import { config } from '../config';
-import { JwtClaims } from '../types';
+import { AuthPurpose, JwtClaims } from '../types';
 
 export function createAccessToken(
   address: string,
   scopes: string[],
   opts?: {
     client_id?: string | undefined;
+    purpose?: AuthPurpose | undefined;
+    context?: string | undefined;
     expiresIn?: number | undefined;
     hotkey?: string | null | undefined;
     coldkey?: string | null | undefined;
@@ -22,6 +24,8 @@ export function createAccessToken(
       type: 'access',
       jti: randomUUID(),
       ...(opts?.client_id && { client_id: opts.client_id }),
+      ...(opts?.purpose && { purpose: opts.purpose }),
+      ...(opts?.context && { context: opts.context }),
       hotkey: opts?.hotkey ?? null,
       coldkey: opts?.coldkey ?? null,
       evm_address: opts?.evm_address ?? null,

@@ -1,7 +1,6 @@
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
-import rateLimit from '@fastify/rate-limit';
 import formbody from '@fastify/formbody';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
@@ -23,6 +22,7 @@ import { startRefreshTokenCleanup, stopRefreshTokenCleanup, waitForRefreshTokenC
 import { ensureDemoClients } from './demo';
 import { setDemoClients } from './routes/landing';
 import { normalizeAllowedOrigin } from './middleware/origin';
+import { registerRateLimit } from './middleware/rateLimit';
 import {
   startAuthorizeSessionCleanup,
   stopAuthorizeSessionCleanup,
@@ -186,19 +186,7 @@ async function main(): Promise<void> {
     credentials: true,
   });
 
-  await server.register(rateLimit, {
-    max: config.rateLimitGlobal,
-    timeWindow: '1 minute',
-    keyGenerator: (request) => {
-      // Per-client rate limiting when client_id is present
-      const body = request.body as Record<string, unknown> | undefined;
-      const clientId = body?.['client_id'] as string | undefined;
-      if (clientId) {
-        return `client:${clientId}`;
-      }
-      return request.ip;
-    },
-  });
+  await registerRateLimit(server);
 
   await server.register(formbody);
 

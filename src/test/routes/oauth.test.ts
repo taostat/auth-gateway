@@ -268,7 +268,11 @@ describe('OAuth Routes', () => {
       expect(JSON.parse(res.payload).message).toBe('Origin header required');
     });
 
-    test('rejects direct auth challenges at OAuth callback', async () => {
+    test.each([
+      {},
+      { client_id: TEST_CLIENT_ID, purpose: 'login' },
+      { client_id: TEST_CLIENT_ID, purpose: 'link', context: 'invite' },
+    ])('rejects direct auth challenges at OAuth callback (%j)', async (fields) => {
       const address = await getAliceAddress();
 
       // Create a session for the callback
@@ -278,7 +282,7 @@ describe('OAuth Routes', () => {
       const challengeRes = await app.inject({
         method: 'POST',
         url: '/v1/auth/challenge',
-        payload: { address },
+        payload: { address, ...fields },
       });
       const { nonce } = JSON.parse(challengeRes.payload);
       const signature = await signWithAlice(nonce);
@@ -287,6 +291,18 @@ describe('OAuth Routes', () => {
 
       expect(callbackRes.statusCode).toBe(400);
       expect(JSON.parse(callbackRes.payload).message).toContain('different authentication flow');
+    });
+
+    test('rejects an OAuth challenge at direct auth verification', async () => {
+      const address = await getAliceAddress();
+      const { nonce } = await getOAuthChallenge({ address, clientId: TEST_CLIENT_ID });
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/verify',
+        payload: { address, nonce, signature: await signWithAlice(nonce) },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().message).toContain('different authentication flow');
     });
 
     test('exchanges auth code for tokens with client auth', async () => {

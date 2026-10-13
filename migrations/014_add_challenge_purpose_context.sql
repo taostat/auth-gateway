@@ -1,0 +1,3 @@
+ALTER TABLE challenges
+  ADD COLUMN IF NOT EXISTS purpose TEXT,
+  ADD COLUMN IF NOT EXISTS context TEXT;

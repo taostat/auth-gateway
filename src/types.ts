@@ -1,10 +1,16 @@
+import { z } from 'zod';
+import { AuthPurposeSchema } from './schemas/auth';
+
 export type { TokenResponse, ChallengeResponse, DeviceCodeResponse, HealthResponse } from './schemas/responses';
 
 export type ChallengeFlowType = 'auth' | 'oauth' | 'device';
+export type AuthPurpose = z.infer<typeof AuthPurposeSchema>;
 
 export interface ChallengeBindings {
   flowType?: ChallengeFlowType | undefined;
   clientId?: string | undefined;
+  purpose?: AuthPurpose | undefined;
+  context?: string | undefined;
   redirectUri?: string | undefined;
   userCode?: string | undefined;
   sessionId?: string | undefined;
@@ -18,6 +24,8 @@ export interface AuthChallenge {
   expiresAt: number;
   flowType: ChallengeFlowType | null;
   clientId: string | null;
+  purpose: AuthPurpose | null;
+  context: string | null;
   redirectUri: string | null;
   userCode: string | null;
   sessionId: string | null;
@@ -33,6 +41,8 @@ export interface JwtClaims {
   jti?: string | undefined;
   type?: 'access' | 'refresh' | 'auth_code' | 'id' | undefined;
   client_id?: string | undefined;
+  purpose?: AuthPurpose | undefined;
+  context?: string | undefined;
   redirect_uri?: string | undefined;
   code_challenge?: string | undefined;
   code_challenge_method?: 'S256' | undefined;
