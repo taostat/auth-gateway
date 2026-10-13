@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { OAuthClient, RefreshTokenRecord, Window } from '../../types';
+import { OAuthClient, RefreshTokenRecord, Window, AuthPurpose } from '../../types';
+import { buildChallengeNonce } from '../../crypto/challengeNonce';
 
 // In-memory mock stores
 const clients = new Map<string, OAuthClient>();
@@ -135,6 +136,8 @@ const challenges = new Map<
     consumed: boolean;
     flowType: 'auth' | 'oauth' | 'device' | null;
     clientId: string | null;
+    purpose: AuthPurpose | null;
+    context: string | null;
     redirectUri: string | null;
     userCode: string | null;
     sessionId: string | null;
@@ -242,6 +245,11 @@ export function clearTestChallenges(): void {
   challenges.clear();
 }
 
+export function expireTestChallenge(nonce: string): void {
+  const challenge = challenges.get(nonce);
+  if (challenge) challenge.createdAt = new Date(0);
+}
+
 export function clearTestDeviceCodes(): void {
   deviceCodes.clear();
   lockedDeviceCodes.clear();
@@ -259,7 +267,8 @@ export function setupMockDb(): void {
   // Mock db/clients
   jest.mock('../../db/clients', () => ({
     getClientById: jest.fn().mockImplementation(async (clientId: string) => {
-      return clients.get(clientId) || null;
+      const client = clients.get(clientId);
+      return client?.active ? client : null;
     }),
     createClient: jest.fn(),
     listClients: jest.fn().mockImplementation(async () => Array.from(clients.values())),
@@ -371,7 +380,6 @@ export function setupMockDb(): void {
 
   // Mock db/challenges
   jest.mock('../../db/challenges', () => {
-    const { randomUUID } = require('node:crypto');
     return {
       createChallenge: jest.fn().mockImplementation(
         async (
@@ -380,13 +388,14 @@ export function setupMockDb(): void {
           opts?: {
             flowType?: 'auth' | 'oauth' | 'device';
             clientId?: string;
+            purpose?: AuthPurpose;
+            context?: string;
             redirectUri?: string;
             userCode?: string;
             sessionId?: string;
           },
         ) => {
-          const scopesCsv = scopes.length > 0 ? scopes.join(',') : 'none';
-          const nonce = `taostats-auth:${scopesCsv}:${randomUUID()}`;
+          const nonce = buildChallengeNonce(scopes, opts);
           const now = new Date();
           challenges.set(nonce, {
             nonce,
@@ -396,6 +405,8 @@ export function setupMockDb(): void {
             consumed: false,
             flowType: opts?.flowType ?? null,
             clientId: opts?.clientId ?? null,
+            purpose: opts?.purpose ?? null,
+            context: opts?.context ?? null,
             redirectUri: opts?.redirectUri ?? null,
             userCode: opts?.userCode ?? null,
             sessionId: opts?.sessionId ?? null,
@@ -407,6 +418,8 @@ export function setupMockDb(): void {
             createdAt: now,
             flowType: opts?.flowType ?? null,
             clientId: opts?.clientId ?? null,
+            purpose: opts?.purpose ?? null,
+            context: opts?.context ?? null,
             redirectUri: opts?.redirectUri ?? null,
             userCode: opts?.userCode ?? null,
             sessionId: opts?.sessionId ?? null,
@@ -415,7 +428,14 @@ export function setupMockDb(): void {
       ),
       consumeChallenge: jest.fn().mockImplementation(async (nonce: string) => {
         const challenge = challenges.get(nonce);
-        if (!challenge || challenge.consumed) throw new Error('challenge_not_found');
+        const { config } = require('../../config') as typeof import('../../config');
+        if (
+          !challenge ||
+          challenge.consumed ||
+          Date.now() - challenge.createdAt.getTime() > config.challengeTtlSeconds * 1000
+        ) {
+          throw new Error('challenge_not_found');
+        }
         challenge.consumed = true;
         return {
           nonce: challenge.nonce,
@@ -424,6 +444,8 @@ export function setupMockDb(): void {
           createdAt: challenge.createdAt,
           flowType: challenge.flowType,
           clientId: challenge.clientId,
+          purpose: challenge.purpose,
+          context: challenge.context,
           redirectUri: challenge.redirectUri,
           userCode: challenge.userCode,
           sessionId: challenge.sessionId,

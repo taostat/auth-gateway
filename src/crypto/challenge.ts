@@ -9,6 +9,8 @@ import {
   clearChallenges as dbClear,
 } from '../db/challenges';
 
+export { buildChallengeNonce } from './challengeNonce';
+
 let cleanupInterval: NodeJS.Timeout | null = null;
 let cleanupPromise: Promise<void> | null = null;
 
@@ -22,6 +24,8 @@ function toAuthChallenge(db: DbChallenge): AuthChallenge {
     expiresAt: createdMs + config.challengeTtlSeconds * 1000,
     flowType: db.flowType,
     clientId: db.clientId,
+    purpose: db.purpose,
+    context: db.context,
     redirectUri: db.redirectUri,
     userCode: db.userCode,
     sessionId: db.sessionId,

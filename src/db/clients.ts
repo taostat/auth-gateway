@@ -101,10 +101,10 @@ function fromRow(row: OAuthClientRow): OAuthClient {
   };
 }
 
-export async function getClientById(clientId: string): Promise<OAuthClient | null> {
+export async function getClientById(clientId: string, opts?: { fresh?: boolean }): Promise<OAuthClient | null> {
   // Check cache
   const cached = clientCache.get(clientId);
-  if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
+  if (!opts?.fresh && cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
     return cached.client;
   }
 
@@ -119,6 +119,8 @@ export async function getClientById(clientId: string): Promise<OAuthClient | nul
   // Only cache positive results — don't cache null lookups
   if (client) {
     clientCache.set(clientId, { client, cachedAt: Date.now() });
+  } else {
+    clientCache.delete(clientId);
   }
   return client;
 }

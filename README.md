@@ -125,6 +125,12 @@ npx tsx scripts/create-client.ts
 | `/v1/auth/challenge` | POST | Request a signing challenge for an address |
 | `/v1/auth/verify` | POST | Verify signature and receive tokens |
 
+An auth challenge can be bound to an active OAuth client with `client_id`, `purpose` (`login` or `link`), and an `address` matching the client's registered wallet type. For bound challenges, client IDs use nonempty visible ASCII characters excluding colons, and scopes are empty or omitted. An optional `context` contains 1–64 letters, numbers, dots, underscores, or hyphens.
+
+The exact text to sign is `taostats-auth:<purpose>:<client_id>:<context or ->:<uuid>`. The response remains `{nonce, expires_in}`. Submit that nonce, the same address, and its signature to `/v1/auth/verify`. Verification consumes the challenge once, checks the active client, and issues an access token with `client_id`, `purpose`, and `context` when supplied. Consumers validate the token's signature, issuer, audience, expiry, and `type: "access"`, then match the expected `client_id`, `purpose`, and context for the operation. OAuth grants use the authorization-code or device flow and their token exchange.
+
+Requests without binding fields retain `taostats-auth:<scopes>:<uuid>` (`none` for empty scopes), optional address binding, and the existing token claims. Challenge and verify limits apply per end-client IP through Fastify's `request.ip`. Trusted server callers forward the end client's IP in `X-Forwarded-For`; configure `TRUST_PROXY` with their trusted proxy IPs/CIDRs. `false` uses the socket IP, and `true` trusts every proxy hop; use `true` behind an ingress that controls forwarded headers and is the gateway's exclusive entry point.
+
 ### OAuth2 (Authorization Code)
 
 | Endpoint | Method | Description |
@@ -213,8 +219,8 @@ Confidential clients must authenticate when calling `/v1/device/code`. Public cl
 | `DEVICE_CODE_TTL_SECONDS` | Device code TTL | `300` | No |
 | `DEVICE_CODE_POLL_INTERVAL` | Minimum poll interval (seconds) | `5` | No |
 | `VERIFICATION_URI` | Device verification URL | `http://localhost:3000/v1/device/verify` | No |
-| `RATE_LIMIT_GLOBAL` | Global rate limit (req/min) | `10` | No |
-| `RATE_LIMIT_CHALLENGE` | Challenge endpoint rate limit | `5` | No |
+| `RATE_LIMIT_GLOBAL` | Default per-IP rate limit (req/min) | `30` | No |
+| `RATE_LIMIT_CHALLENGE` | Per-IP rate limit for each challenge/verify endpoint (req/min) | `5` | No |
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://localhost:5432/auth_gateway` | Yes |
 | `ADMIN_API_KEY` | Admin API authentication key | — | Yes (prod) |
 | `RUN_MIGRATIONS` | Auto-run migrations on startup | `true` | No |
@@ -278,7 +284,7 @@ Scopes are verified on-chain during initial authentication and **always re-verif
 - **Origin enforcement**: Per-client `allowed_origins` on token/device endpoints; same-origin enforcement on browser-only endpoints
 - **Redirect URI validation**: Whitelisted against registered URIs, HTTPS required in production, fragments and embedded credentials rejected
 - **Non-root Docker**: Production container runs as non-root user
-- **Rate limiting**: Per-IP and per-client rate limiting on all endpoints
+- **Rate limiting**: Per-IP request limits, with additional per-client limits on OAuth token exchange and refresh endpoints
 - **Epoch-aligned access tokens**: Access tokens expire at the next epoch boundary, naturally gating scope re-verification frequency
 - **Subtensor query timeouts**: All on-chain queries have 10-second timeouts
 
@@ -450,13 +456,15 @@ Access tokens are RS256 JWTs. Claims differ by wallet type:
 ```json
 {
   "sub": "5GrwvaEF...",        // SS58 wallet address
-  "scope": "subnet:1:validator",
+  "scope": "",                 // bound auth challenges have empty scopes
   "type": "access",
   "jti": "uuid-v4",
   "hotkey": "5FHneW46...",     // hotkey address (null if signer is coldkey)
   "coldkey": "5GrwvaEF...",    // coldkey address (always present)
   "evm_address": null,
-  "client_id": "...",          // present in OAuth flows
+  "client_id": "...",          // present in OAuth flows and bound auth challenges
+  "purpose": "login",          // present in bound auth challenges
+  "context": "invite-42",      // optional in bound auth challenges
   "iss": "https://auth.taostats.io",
   "aud": "bittensor-apps",
   "exp": 1234567890,
