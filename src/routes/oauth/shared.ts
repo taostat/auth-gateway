@@ -105,12 +105,3 @@ export async function getAccessTokenExpiry(scopes: string[]): Promise<number> {
   const { accessExpiry } = await getEpochInfo(scopes);
   return accessExpiry;
 }
-
-/**
- * Get the current epoch for the first netuid in scopes.
- * Used for storing epoch_at_issuance on refresh tokens.
- */
-export async function getFirstEpoch(scopes: string[]): Promise<number | null> {
-  const { epoch } = await getEpochInfo(scopes);
-  return epoch;
-}
