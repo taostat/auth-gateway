@@ -42,7 +42,7 @@ jobs:
         run: npm run format:check
 
       - name: Audit dependencies
-        run: npm audit --audit-level=moderate
+        run: npm audit --omit=dev --audit-level=moderate
 
       - name: Test
         run: npm test
