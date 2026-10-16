@@ -55,6 +55,13 @@ export function sendHtmlError(reply: FastifyReply, statusCode: number, title: st
 export const MIN_ACCESS_TOKEN_EXPIRY = 300;
 
 /**
+ * Upper bound, in seconds, of the random delay added past an epoch boundary.
+ * Every token on a subnet would otherwise expire at the same instant, and all
+ * of a client's users would refresh at once against its shared rate limit.
+ */
+export const EPOCH_EXPIRY_SPREAD = 60;
+
+/**
  * Extract the first netuid from a scopes array.
  * Scopes follow the format "role:netuid:..." (e.g. "subnet:1:miner").
  */
@@ -87,7 +94,7 @@ export async function getEpochInfo(scopes: string[]): Promise<{
 
   let accessExpiry: number;
   if (secondsUntilNextEpoch !== null && secondsUntilNextEpoch >= MIN_ACCESS_TOKEN_EXPIRY) {
-    accessExpiry = secondsUntilNextEpoch;
+    accessExpiry = secondsUntilNextEpoch + crypto.randomInt(EPOCH_EXPIRY_SPREAD + 1);
   } else if (secondsUntilNextEpoch !== null) {
     accessExpiry = MIN_ACCESS_TOKEN_EXPIRY;
   } else {
@@ -104,13 +111,4 @@ export async function getEpochInfo(scopes: string[]): Promise<{
 export async function getAccessTokenExpiry(scopes: string[]): Promise<number> {
   const { accessExpiry } = await getEpochInfo(scopes);
   return accessExpiry;
-}
-
-/**
- * Get the current epoch for the first netuid in scopes.
- * Used for storing epoch_at_issuance on refresh tokens.
- */
-export async function getFirstEpoch(scopes: string[]): Promise<number | null> {
-  const { epoch } = await getEpochInfo(scopes);
-  return epoch;
 }
