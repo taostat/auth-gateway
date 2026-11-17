@@ -31,7 +31,7 @@ describe('Delegate Scope Handler', () => {
     const result = await delegateHandler.verify(coldkey(ALICE), { netuid: 0, hotkey: VALIDATOR });
     expect(result).toBe(true);
     expect(mockTaostatsGet).toHaveBeenCalledWith(
-      '/api/dtao/stake_balance/latest/v1',
+      '/v1/alpha/leaderboard',
       expect.objectContaining({ coldkey: ALICE, hotkey: VALIDATOR }),
     );
   });

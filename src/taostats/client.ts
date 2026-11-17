@@ -6,10 +6,13 @@ const CACHE_TTL_MS = 60000;
 const CACHE_MAX_SIZE = 256;
 
 export interface TaostatsApiResponse<T> {
-  pagination: {
+  pagination?: {
     current_page: number;
+    per_page?: number;
     total_items: number;
     total_pages: number;
+    next_page?: number | null;
+    prev_page?: number | null;
   };
   data: T[];
 }
@@ -43,7 +46,10 @@ export function taoStringToRao(s: string): bigint {
  * Fetch from the Taostats API with auth, timeout, and 60s cache.
  * Throws if TAOSTATS_API_KEY is not configured.
  */
-export async function taostatsGet<T>(path: string, params: Record<string, string>): Promise<TaostatsApiResponse<T>> {
+export async function taostatsGet<T>(
+  path: string,
+  params: Record<string, string> = {},
+): Promise<TaostatsApiResponse<T>> {
   if (!config.taostatsApiKey) {
     throw new Error('TAOSTATS_API_KEY is required for Taostats API scopes');
   }

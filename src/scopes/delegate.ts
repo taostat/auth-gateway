@@ -17,10 +17,10 @@ export const delegateHandler: ScopeHandler = {
 
     let result;
     try {
-      result = await taostatsGet<StakeBalanceEntry>('/api/dtao/stake_balance/latest/v1', {
+      result = await taostatsGet<StakeBalanceEntry>('/v1/alpha/leaderboard', {
         coldkey: ctx.coldkey!,
         hotkey: params.hotkey,
-        limit: '100',
+        limit: '200',
       });
     } catch (err) {
       console.warn(`Delegate scope check failed for ${ctx.coldkey} -> ${params.hotkey}:`, err);

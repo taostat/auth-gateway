@@ -1,8 +1,8 @@
 import { ScopeHandler } from './types';
 import { taostatsGet } from '../taostats/client';
 
-interface AggregatedStakeEntry {
-  total_balance_as_tao: string;
+interface AccountStakeEntry {
+  balance_staked: string;
 }
 
 /**
@@ -17,10 +17,7 @@ export const stakerHandler: ScopeHandler = {
 
     let result;
     try {
-      result = await taostatsGet<AggregatedStakeEntry>('/api/dtao/stake_balance_aggregated/latest/v1', {
-        coldkey: ctx.coldkey!,
-        limit: '1',
-      });
+      result = await taostatsGet<AccountStakeEntry>(`/v1/accounts/${encodeURIComponent(ctx.coldkey!)}`);
     } catch (err) {
       console.warn(`Staker scope check failed for ${ctx.coldkey}:`, err);
       return false;
@@ -28,7 +25,7 @@ export const stakerHandler: ScopeHandler = {
 
     if (result.data.length === 0) return false;
 
-    const totalRao = BigInt(result.data[0]!.total_balance_as_tao);
+    const totalRao = BigInt(result.data[0]!.balance_staked);
     return totalRao >= minTao;
   },
 };
