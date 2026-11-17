@@ -21,10 +21,10 @@ export const holderHandler: ScopeHandler = {
 
 async function checkBalanceViaTaostatsApi(address: string, netuid: number, minAmount: bigint): Promise<boolean> {
   try {
-    const result = await taostatsGet<AlphaBalanceEntry>(`/api/dtao/stake_balance/latest/v1`, {
+    const result = await taostatsGet<AlphaBalanceEntry>('/v1/alpha/leaderboard', {
       coldkey: address,
       netuid: String(netuid),
-      limit: '100',
+      limit: '200',
     });
     let total = BigInt(0);
     for (const entry of result.data) {

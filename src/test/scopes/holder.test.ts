@@ -20,8 +20,18 @@ function coldkey(address: string): SignerContext {
 }
 
 const RAO = 1_000_000_000n;
+const mockTaostatsGet = jest.fn();
+
+jest.mock('../../taostats/client', () => ({
+  ...jest.requireActual('../../taostats/client'),
+  taostatsGet: (...args: unknown[]) => mockTaostatsGet(...args),
+}));
 
 describe('Holder Scope Handler', () => {
+  beforeEach(() => {
+    mockTaostatsGet.mockReset();
+  });
+
   test('address with alpha balance > 0 returns true', async () => {
     const result = await holderHandler.verify(coldkey(ALICE), { netuid: 1 });
     expect(result).toBe(true);
@@ -52,5 +62,18 @@ describe('Holder Scope Handler', () => {
   test('exact minimum amount passes', async () => {
     const result = await holderHandler.verify(coldkey(ALICE), { netuid: 1, minAmount: 500n * RAO });
     expect(result).toBe(true);
+  });
+
+  test('uses the alpha leaderboard when the on-chain read is below the minimum', async () => {
+    mockTaostatsGet.mockResolvedValue({ data: [{ balance: '1000000000000' }] });
+
+    const result = await holderHandler.verify(coldkey(BOB), { netuid: 1, minAmount: 100n * RAO });
+
+    expect(result).toBe(true);
+    expect(mockTaostatsGet).toHaveBeenCalledWith('/v1/alpha/leaderboard', {
+      coldkey: BOB,
+      netuid: '1',
+      limit: '200',
+    });
   });
 });

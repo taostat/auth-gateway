@@ -24,7 +24,7 @@ describe('Staker Scope Handler', () => {
 
   test('returns true when total exceeds minimum', async () => {
     mockTaostatsGet.mockResolvedValue({
-      data: [{ total_balance_as_tao: '5000000000000' }],
+      data: [{ balance_staked: '5000000000000' }],
       pagination: { total_items: 1 },
     });
     const result = await stakerHandler.verify(coldkey(ALICE), { netuid: 0, minAmount: 1000n * RAO });
@@ -33,7 +33,7 @@ describe('Staker Scope Handler', () => {
 
   test('returns false when below minimum', async () => {
     mockTaostatsGet.mockResolvedValue({
-      data: [{ total_balance_as_tao: '500000000000' }],
+      data: [{ balance_staked: '500000000000' }],
       pagination: { total_items: 1 },
     });
     const result = await stakerHandler.verify(coldkey(ALICE), { netuid: 0, minAmount: 1000n * RAO });
@@ -48,11 +48,20 @@ describe('Staker Scope Handler', () => {
 
   test('exact 1 RAO balance meets 1 RAO minimum', async () => {
     mockTaostatsGet.mockResolvedValue({
-      data: [{ total_balance_as_tao: '1' }],
+      data: [{ balance_staked: '1' }],
       pagination: { total_items: 1 },
     });
     const result = await stakerHandler.verify(coldkey(ALICE), { netuid: 0, minAmount: 1n });
     expect(result).toBe(true);
+  });
+
+  test('reads the unpaginated account response and compares the balance_staked RAO string', async () => {
+    mockTaostatsGet.mockResolvedValue({ data: [{ address: ALICE, balance_staked: '0' }] });
+
+    const result = await stakerHandler.verify(coldkey(ALICE), { netuid: 0 });
+
+    expect(result).toBe(false);
+    expect(mockTaostatsGet).toHaveBeenCalledWith(`/v1/accounts/${ALICE}`);
   });
 
   test('returns false when Taostats API call fails', async () => {
